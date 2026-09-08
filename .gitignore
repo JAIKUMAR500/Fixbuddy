@@ -1,0 +1,27 @@
+node_modules/
+dist/
+build/
+.cache/
+.vite/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+frontend/.env
+backend/.env
+
+# Uploaded photos/voice stay on the server as URLs, not in git
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Figma Make leftovers — not part of FixBuddy
+.figma/
+.mise.toml
+/src/
+pnpm-lock.yaml
+.plugins/
+.opencode-skills/
+.claude-replay.*
+.tmp-*
+vite.config.*.timestamp-*
