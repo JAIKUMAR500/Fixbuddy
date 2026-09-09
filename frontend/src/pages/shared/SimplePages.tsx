@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Calendar, ChevronRight, MapPin, Plus } from "lucide-react";
 import { View } from "../../types";
 import { Badge, Button, Card, EmptyState, Input, StatusBadge } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
@@ -20,9 +21,15 @@ export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) 
   });
 
   return (
-    <div className="p-4 lg:p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold font-display mb-2">Bookings</h1>
-      <p className="text-slate-500 text-sm mb-6">Upcoming, in progress and completed jobs.</p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand mb-2">Service schedule</p>
+          <h1 className="text-2xl sm:text-3xl font-bold font-display mb-2">Bookings</h1>
+          <p className="text-slate-500 text-sm">Upcoming, active and completed service appointments.</p>
+        </div>
+        <button type="button" onClick={() => navigate("create-request")} className="inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-brand text-white text-sm font-semibold"><Plus className="w-4 h-4" /> New booking</button>
+      </div>
       <div className="flex gap-2 mb-5 overflow-x-auto no-scrollbar">
         {["All", "Upcoming", "In Progress", "Completed", "Cancelled"].map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-xs font-semibold ${tab === t ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600"}`}>{t}</button>
@@ -34,14 +41,19 @@ export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) 
       )}
       <div className="space-y-3">
         {rows.map((r) => (
-          <Card key={r.id} className="cursor-pointer hover:border-brand" onClick={() => { setActiveRequestId(r.id); navigate("request-status"); }}>
+          <Card key={r.id} className="cursor-pointer hover:border-brand hover:shadow-sm transition-all" onClick={() => { setActiveRequestId(r.id); navigate("request-status"); }}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-semibold">{r.category}</p>
-                <p className="text-xs text-slate-500">{r.provider?.name || "Finding a worker"} · {r.scheduledLabel || r.timing}</p>
+                <p className="text-xs text-slate-500 mt-1">{r.provider?.name || "Finding a worker"} · {r.code}</p>
               </div>
               <StatusBadge status={r.status} />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 text-xs text-slate-500">
+              <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-brand" />{r.scheduledLabel || r.timing}</span>
+              <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-brand" />{r.area || r.city}</span>
+            </div>
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 text-xs text-brand font-semibold">View booking details <ChevronRight className="w-4 h-4" /></div>
           </Card>
         ))}
       </div>

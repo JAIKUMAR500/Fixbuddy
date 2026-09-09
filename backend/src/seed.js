@@ -27,6 +27,7 @@ const AV = {
 };
 
 async function run() {
+  console.warn("WARNING: seed deletes all users and application data. Use only for a disposable development database.");
   await connectDb();
   console.log("Seeding", env.mongoUri);
 

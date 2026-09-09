@@ -54,7 +54,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
     setBusy(id);
     setActionError("");
     try {
-      await ChatAPI.open(id);
+      await ChatAPI.open(id, user?.id);
       setActiveRequestId(id);
       navigate("business-messages");
     } catch (e) {
@@ -112,12 +112,13 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
                       <Phone className="w-5 h-5" /> Call
                     </button>
                     <button
-                      disabled
-                      className="min-h-12 rounded-xl border border-slate-100 bg-slate-50 text-slate-400 font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed"
+                      disabled={busy === req.id}
+                      onClick={() => void openChat(req.id)}
+                      className="min-h-12 rounded-xl border border-sky-200 bg-sky-50 text-sky-700 font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
                       <MessageSquare className="w-5 h-5" /> Message
                     </button>
-                    <p className="text-[11px] text-slate-400 text-center">Unlocks after accept</p>
+                    <p className="text-[11px] text-slate-400 text-center">Chat is available now. Calls unlock after accept.</p>
                   </div>
                 </div>
               </Card>

@@ -27,11 +27,14 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
   const sorted = [...matchedProviders]
     .filter((p) => !verifiedOnly || p.verified)
     .sort((a, b) => {
-    if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
-    if (sortBy === "price") return String(a.price).localeCompare(String(b.price));
-    if (sortBy === "response") return String(a.responseTime).localeCompare(String(b.responseTime));
-    return String(a.distance).localeCompare(String(b.distance));
-  });
+      if (a.available !== b.available) return Number(b.available) - Number(a.available);
+      if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
+      if (sortBy === "price") return String(a.price).localeCompare(String(b.price));
+      if (sortBy === "response") return String(a.responseTime).localeCompare(String(b.responseTime));
+      const aDistance = Number.parseFloat(a.distance);
+      const bDistance = Number.parseFloat(b.distance);
+      return (Number.isFinite(aDistance) ? aDistance : Infinity) - (Number.isFinite(bDistance) ? bDistance : Infinity);
+    });
 
   const requestService = async (providerId: string) => {
     if (!activeRequestId) {
@@ -120,7 +123,7 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
                     <p className="text-xs text-slate-500">{p.category}</p>
                   </div>
                   <span className={`text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0 ${p.available ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                    {p.available ? "Available" : "Busy"}
+                    {p.available ? "Active" : "Inactive"}
                   </span>
                 </div>
 

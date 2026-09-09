@@ -18,7 +18,7 @@ export default function AdminLogin({ navigate }: { navigate: (v: View) => void }
     setError("");
     setSubmitting(true);
     try {
-      const user = await login(email, password);
+      const user = await login(email, password, "admin");
       if (user.role !== "admin") {
         logout();
         setError("This login is for Super Admin only");

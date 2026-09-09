@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { User } from "./models/User.js";
 import { Category } from "./models/Category.js";
 import { Review } from "./models/Review.js";
+import { Conversation } from "./models/Conversation.js";
 import { env } from "./config/env.js";
 import { connectDb } from "./config/db.js";
 import { ensureProductionAccounts } from "./utils/ensureAdmin.js";
@@ -107,6 +108,8 @@ app.use(errorHandler);
 
 connectDb()
   .then(async () => {
+    await User.syncIndexes();
+    await Conversation.syncIndexes();
     await ensureProductionAccounts();
     app.listen(env.port, () => {
       console.log(`Fixbuddy API on http://localhost:${env.port}`);

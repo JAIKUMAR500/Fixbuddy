@@ -30,7 +30,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     return "customer";
   });
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", description: "" });
   const [otp, setOtp] = useState("");
   const [shownOtp, setShownOtp] = useState("");
   const [error, setError] = useState("");
@@ -57,7 +57,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     setShownOtp("");
     setSubmitting(true);
     try {
-      const d = await AuthAPI.forgot(form.email);
+      const d = await AuthAPI.forgot(form.email, selectedType);
       setInfo(d.message);
       if (d.otp) {
         setShownOtp(d.otp);
@@ -83,7 +83,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     setSubmitting(true);
     try {
-      const { token, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password });
+      const { token, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password, role: selectedType });
       localStorage.setItem("fb_token", token);
       routeAfterAuth(user);
     } catch (e) {
@@ -97,7 +97,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     setError("");
     setSubmitting(true);
     try {
-      await googleLogin(credential, mode === "signup" ? selectedType : undefined);
+      await googleLogin(credential, selectedType);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed");
     } finally {
@@ -111,8 +111,8 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     setInfo("");
     setSubmitting(true);
     try {
-      if (mode === "login") await login(form.email, form.password);
-      else await signup({ name: form.name, email: form.email, password: form.password, role: selectedType });
+      if (mode === "login") await login(form.email, form.password, selectedType);
+      else await signup({ name: form.name, email: form.email, password: form.password, role: selectedType, description: form.description });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to complete authentication");
     } finally {
@@ -166,7 +166,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
               : "Sign in with your email, mobile number, or Google.")}
           </p>
 
-          {mode === "signup" && screen === "form" && (
+          {screen === "form" && (
             <div className="grid grid-cols-3 gap-2 mb-6">
               {ROLES.map((type) => (
                 <button
@@ -194,6 +194,18 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
+              )}
+              {mode === "signup" && (selectedType === "worker" || selectedType === "business") && (
+                <label className="block text-sm font-medium text-slate-700">
+                  {selectedType === "worker" ? "Describe your work" : "Business description"}
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    placeholder={selectedType === "worker" ? "What services do you provide?" : "What does your business do?"}
+                    rows={3}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  />
+                </label>
               )}
               <Input
                 label="Email or Mobile Number"

@@ -31,7 +31,7 @@ type Ctx = {
   setSelectedProvider: (p: ApiProvider | null) => void;
   activeRequestId: string | null;
   setActiveRequestId: (id: string | null) => void;
-  login: (email: string, password: string) => Promise<AppUser>;
+  login: (email: string, password: string, role?: string) => Promise<AppUser>;
   signup: (body: object) => Promise<AppUser>;
   googleLogin: (credential: string, role?: string) => Promise<AppUser>;
   logout: () => void;
@@ -65,8 +65,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const { token, user: u } = await AuthAPI.login(String(email || "").trim(), password);
+    async (email: string, password: string, role?: string) => {
+      const { token, user: u } = await AuthAPI.login(String(email || "").trim(), password, role);
       localStorage.setItem("fb_token", token);
       routeAfterAuth(u);
       return u;
@@ -113,7 +113,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setUser(u);
         setView(roleHome(u));
       })
-      .catch(() => localStorage.removeItem("fb_token"))
+      .catch(() => {
+        localStorage.removeItem("fb_token");
+        setUser(null);
+        setView("login");
+      })
       .finally(() => setReady(true));
   }, []);
 

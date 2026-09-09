@@ -32,9 +32,9 @@ function publicUrl(req, name) {
 function parseDataUrl(dataUrl) {
   const match = String(dataUrl || "")
     .trim()
-    .match(/^data:((?:image|audio)\/[a-zA-Z0-9.+-]+)(?:;charset=[^;]+)?;base64,([\s\S]+)$/);
+    .match(/^data:((?:image|audio)\/[a-zA-Z0-9.+-]+)(?:;[^,]*)?;base64,([\s\S]+)$/);
   if (!match) return null;
-  return { mime: match[1].toLowerCase(), buf: Buffer.from(match[2].replace(/\s/g, ""), "base64") };
+  return { mime: match[1].toLowerCase().split(";")[0], buf: Buffer.from(match[2].replace(/\s/g, ""), "base64") };
 }
 
 function extFor(mime, isAudio) {

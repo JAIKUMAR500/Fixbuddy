@@ -17,16 +17,17 @@ const router = Router();
 router.post(
   "/signup",
   asyncHandler(async (req, res) => {
-    const { name, email, phone, password, role, city, area, address, lat, lng } = req.body || {};
+    const { name, email, phone, password, role, city, area, address, lat, lng, description } = req.body || {};
     if (!name || !email || !password) throw httpError(400, "Name, email and password are required");
     const nextRole = normalizeSignupRole(role);
     if (!nextRole) throw httpError(403, "Admin accounts cannot be created from signup");
-    const exists = await User.findOne({ email: String(email).toLowerCase() }).lean();
-    if (exists) throw httpError(409, "An account with this email already exists");
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const exists = await User.findOne({ email: normalizedEmail, role: nextRole }).lean();
+    if (exists) throw httpError(409, `An account with this email already exists for the ${nextRole} role`);
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await createUserWithCode({
       name,
-      email: String(email).toLowerCase(),
+      email: normalizedEmail,
       phone: phone || "",
       city: city || "",
       area: area || "",
@@ -37,7 +38,7 @@ router.post(
       role: nextRole,
       license: buildLicense({ days: 7, plan: "trial" }),
       provider: isProviderAccount(nextRole)
-        ? { businessName: name, onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
+        ? { businessName: name, description: String(description || "").trim(), onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
         : undefined,
     });
     const token = signToken(user);
@@ -53,12 +54,19 @@ router.post(
   "/login",
   asyncHandler(async (req, res) => {
     const ident = String(req.body.email || req.body.phone || "").trim();
-    const { password } = req.body || {};
+    const { password, role } = req.body || {};
     if (!ident || !password) throw httpError(400, "Email / mobile and password are required");
 
     let user = null;
+    const roleFilter = ["customer", "worker", "business", "provider", "admin"].includes(role) ? { role } : {};
     if (ident.includes("@")) {
-      user = await User.findOne({ email: ident.toLowerCase() }).select("+passwordHash +googleId");
+      const candidates = await User.find({ email: ident.toLowerCase(), ...roleFilter }).select("+passwordHash +googleId");
+      const matched = [];
+      for (const candidate of candidates) {
+        if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) matched.push(candidate);
+      }
+      if (matched.length > 1) throw httpError(409, "Select the role used for this account before signing in");
+      user = matched[0] || null;
     } else {
       const digits = phoneDigits(ident);
       if (digits.length >= 10) {
@@ -146,16 +154,19 @@ router.post(
   "/forgot",
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
+    const role = ["customer", "worker", "business", "provider", "admin"].includes(req.body.role) ? req.body.role : null;
     if (!email.includes("@")) throw httpError(400, "Enter the email on your account");
-    const user = await User.findOne({ email }).lean();
+    const user = await User.findOne({ email, ...(role ? { role } : {}) }).lean();
     if (!user) throw httpError(404, "No FixBuddy account uses this email");
-    const recent = await Otp.findOne({ email, purpose: "reset", createdAt: { $gt: new Date(Date.now() - 60 * 1000) } });
+    const otpFilter = { email, role: role || "", purpose: "reset" };
+    const recent = await Otp.findOne({ ...otpFilter, createdAt: { $gt: new Date(Date.now() - 60 * 1000) } });
     if (recent) throw httpError(429, "Wait a minute, then request a new OTP");
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const codeHash = await bcrypt.hash(code, 10);
-    await Otp.deleteMany({ email, purpose: "reset" });
+    await Otp.deleteMany(otpFilter);
     await Otp.create({
       email,
+      role: role || "",
       codeHash,
       purpose: "reset",
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -201,10 +212,11 @@ router.post(
   "/reset",
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
+    const role = ["customer", "worker", "business", "provider", "admin"].includes(req.body.role) ? req.body.role : null;
     const otp = String(req.body.otp || "").trim();
     const password = String(req.body.password || "");
     if (!email || !otp || password.length < 6) throw httpError(400, "Email, 6-digit OTP and a new password (6+ characters) are required");
-    const row = await Otp.findOne({ email, purpose: "reset" });
+    const row = await Otp.findOne({ email, role: role || "", purpose: "reset" });
     if (!row || row.expiresAt.getTime() < Date.now()) throw httpError(400, "OTP expired. Request a new one.");
     if (row.attempts >= 5) throw httpError(429, "Too many attempts. Request a new OTP.");
     const match = await bcrypt.compare(otp, row.codeHash);
@@ -214,9 +226,9 @@ router.post(
       throw httpError(400, "OTP does not match");
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.findOneAndUpdate({ email }, { $set: { passwordHash } }, { new: true });
+    const user = await User.findOneAndUpdate({ email, ...(role ? { role } : {}) }, { $set: { passwordHash } }, { new: true });
     if (!user) throw httpError(404, "Account not found");
-    await Otp.deleteMany({ email, purpose: "reset" });
+    await Otp.deleteMany({ email, role: role || "", purpose: "reset" });
     await ensureLoginLicense(user);
     issueAuth(user, res);
   })
@@ -232,7 +244,8 @@ router.post(
       env.googleClientId,
     ]);
     const email = payload.email;
-    let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }] });
+    const googleRole = ["customer", "worker", "business", "provider"].includes(req.body.role) ? req.body.role : null;
+    let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }], ...(googleRole ? { role: googleRole } : {}) });
     if (!user) {
       const nextRole = normalizeSignupRole(req.body.role) || "customer";
       user = await createUserWithCode({

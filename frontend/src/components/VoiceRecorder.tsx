@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { Mic, Square, Trash2 } from "lucide-react";
-import { uploadMedia } from "../api/client";
+import { recordingExtension, supportedRecordingMime, uploadMedia } from "../api/client";
 
 export default function VoiceRecorder({
   url,
@@ -19,15 +19,21 @@ export default function VoiceRecorder({
     setError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      if (typeof MediaRecorder === "undefined") {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("Voice recording is not supported in this browser.");
+      }
+      const mime = supportedRecordingMime();
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       chunks.current = [];
       rec.ondataavailable = (e) => {
         if (e.data.size) chunks.current.push(e.data);
       };
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks.current, { type: rec.mimeType || "audio/webm" });
-        const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type });
+        const blobType = rec.mimeType || mime || "audio/webm";
+        const blob = new Blob(chunks.current, { type: blobType });
+        const file = new File([blob], `voice-${Date.now()}.${recordingExtension(blobType)}`, { type: blobType });
         setBusy(true);
         try {
           const { url: next } = await uploadMedia(file);
@@ -41,8 +47,8 @@ export default function VoiceRecorder({
       recRef.current = rec;
       rec.start();
       setRecording(true);
-    } catch {
-      setError("Microphone permission is required for voice notes.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Microphone permission is required for voice notes.");
     }
   };
 

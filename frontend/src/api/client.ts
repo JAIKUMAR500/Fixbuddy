@@ -29,15 +29,15 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export const AuthAPI = {
-  login: (email: string, password: string) =>
-    api<{ token: string; user: AppUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string, role?: string) =>
+    api<{ token: string; user: AppUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, role }) }),
   signup: (body: object) =>
     api<{ token: string; user: AppUser }>("/auth/signup", { method: "POST", body: JSON.stringify(body) }),
   google: (credential: string, role?: string) =>
     api<{ token: string; user: AppUser }>("/auth/google", { method: "POST", body: JSON.stringify({ credential, role }) }),
-  forgot: (email: string) =>
-    api<{ ok: boolean; message: string; otp?: string; queued?: boolean }>("/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
-  reset: (body: { email: string; otp: string; password: string }) =>
+  forgot: (email: string, role?: string) =>
+    api<{ ok: boolean; message: string; otp?: string; queued?: boolean }>("/auth/forgot", { method: "POST", body: JSON.stringify({ email, role }) }),
+  reset: (body: { email: string; otp: string; password: string; role?: string }) =>
     api<{ token: string; user: AppUser }>("/auth/reset", { method: "POST", body: JSON.stringify(body) }),
   me: () => api<{ user: AppUser }>("/auth/me"),
   updateMe: (body: object) => api<{ user: AppUser }>("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
@@ -133,6 +133,22 @@ export async function uploadDataUrl(dataUrl: string, filename = "photo.png") {
   return api<{ url: string; kind?: string }>("/upload", { method: "POST", body: JSON.stringify({ dataUrl, filename }) });
 }
 
+export function supportedRecordingMime() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) || "";
+}
+
+export function recordingExtension(mime: string) {
+  return mime.startsWith("audio/mp4") ? "m4a" : mime.startsWith("audio/ogg") ? "ogg" : "webm";
+}
+
 export async function uploadMedia(file: File) {
   const isAudio = file.type.startsWith("audio/");
   if (isHeic(file)) {
@@ -167,8 +183,8 @@ export const RequestAPI = {
 
 export const ChatAPI = {
   list: () => api<{ conversations: ChatThread[] }>("/conversations"),
-  open: (requestId: string) =>
-    api<{ conversationId: string; requestId: string }>("/conversations/open", { method: "POST", body: JSON.stringify({ requestId }) }),
+  open: (requestId: string, providerId?: string) =>
+    api<{ conversationId: string; requestId: string }>("/conversations/open", { method: "POST", body: JSON.stringify({ requestId, providerId }) }),
   messages: (id: string) => api<{ conversationId: string; requestId: string; messages: ChatMsg[] }>(`/conversations/${id}/messages`),
   send: (id: string, body: { text?: string; kind?: string; mediaUrl?: string }) =>
     api<{ message: ChatMsg }>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify(body) }),
@@ -345,6 +361,8 @@ export type Provider = {
   category: string;
   price: string;
   available: boolean;
+  status?: "active" | "inactive";
+  accountStatus?: "active" | "suspended";
   verified: boolean;
   description: string;
   experience: string;

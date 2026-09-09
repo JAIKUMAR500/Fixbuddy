@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const conversationSchema = new mongoose.Schema(
   {
-    requestId: { type: mongoose.Schema.Types.ObjectId, ref: "Request", required: true, unique: true, index: true },
+    requestId: { type: mongoose.Schema.Types.ObjectId, ref: "Request", required: true, index: true },
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     providerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     lastMessage: { type: String, default: "" },
@@ -15,5 +15,6 @@ const conversationSchema = new mongoose.Schema(
 
 conversationSchema.index({ customerId: 1, lastAt: -1 });
 conversationSchema.index({ providerId: 1, lastAt: -1 });
+conversationSchema.index({ requestId: 1, providerId: 1 }, { unique: true });
 
 export const Conversation = mongoose.model("Conversation", conversationSchema);

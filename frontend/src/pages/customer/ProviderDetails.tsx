@@ -19,8 +19,10 @@ export default function ProviderDetails({ navigate, provider }: Props) {
   const [p, setP] = useState<Provider | null>(provider);
   const [reviews, setReviews] = useState<ReviewsPayload | null>(null);
   const [busy, setBusy] = useState("");
+  const [requestStatus, setRequestStatus] = useState("");
   const inbox = user?.role === "customer" ? "customer-messages" : "business-messages";
   const back = user?.role === "customer" || isBusiness(user?.role) ? "matched-providers" : "work-requests";
+  const callAllowed = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(requestStatus);
 
   useEffect(() => {
     setP(provider);
@@ -32,6 +34,12 @@ export default function ProviderDetails({ navigate, provider }: Props) {
       .then(setReviews)
       .catch(() => setReviews(null));
   }, [provider]);
+
+  useEffect(() => {
+    setRequestStatus("");
+    if (!activeRequestId) return;
+    void RequestAPI.get(activeRequestId).then(({ request }) => setRequestStatus(request.status)).catch(() => setRequestStatus(""));
+  }, [activeRequestId]);
 
   if (!p) {
     return (
@@ -116,7 +124,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
                     <div>
                       <p className="text-xs text-slate-400">{row.label}</p>
                       {row.label === "Phone" && p.phone ? (
-                        <button type="button" className="text-sm font-medium text-sky-700" onClick={() => startCall(p.phone)}>
+                        <button type="button" disabled={!callAllowed} className="text-sm font-medium text-sky-700 disabled:text-slate-400" onClick={() => startCall(p.phone)}>
                           {row.value}
                         </button>
                       ) : (
@@ -206,7 +214,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
 
         <div className="sticky bottom-20 lg:bottom-0 z-20 bg-sky-50/95 backdrop-blur pt-4 pb-6 mt-6">
           <div className="flex gap-3">
-            <Button variant="outline" fullWidth size="lg" onClick={() => startCall(p.phone)}>
+            <Button variant="outline" fullWidth size="lg" disabled={!callAllowed} onClick={() => startCall(p.phone)}>
               <Phone className="w-4 h-4" /> Call
             </Button>
             <Button variant="outline" fullWidth size="lg" onClick={() => navigate(inbox)}>

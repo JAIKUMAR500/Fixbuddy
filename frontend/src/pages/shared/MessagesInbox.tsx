@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Send, ArrowLeft, Phone, Image, Mic } from "lucide-react";
 import { View } from "../../types";
 import { Avatar, EmptyState, Skeleton } from "../../components/ui";
-import { ChatAPI, uploadMedia, mediaUrl, type ChatMsg, type ChatThread } from "../../api/client";
+import { ChatAPI, recordingExtension, supportedRecordingMime, uploadMedia, mediaUrl, type ChatMsg, type ChatThread } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { startCall, jobAllowsCall } from "../../api/phone";
 
@@ -97,14 +97,20 @@ export default function MessagesInbox({
   const sendVoice = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const mime = supportedRecordingMime();
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const chunks: Blob[] = [];
       rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const file = new File([new Blob(chunks, { type: rec.mimeType || "audio/webm" })], "voice.webm", { type: rec.mimeType || "audio/webm" });
-        const { url } = await uploadMedia(file);
-        await send({ kind: "voice", mediaUrl: url, text: "Voice note" });
+        try {
+          const blobType = rec.mimeType || mime || "audio/webm";
+          const file = new File([new Blob(chunks, { type: blobType })], `voice.${recordingExtension(blobType)}`, { type: blobType });
+          const { url } = await uploadMedia(file);
+          await send({ kind: "voice", mediaUrl: url, text: "Voice note" });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Voice upload failed");
+        }
       };
       rec.start();
       setTimeout(() => rec.stop(), 8000);

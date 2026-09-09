@@ -47,7 +47,7 @@ const providerSchema = new mongoose.Schema(
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, index: true },
+    email: { type: String, required: true, lowercase: true, index: true },
     phone: { type: String, default: "" },
     passwordHash: { type: String, required: true, select: false },
     googleId: { type: String, default: "", index: true },
@@ -89,5 +89,6 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ "provider.category": 1, "provider.available": 1, status: 1 });
 userSchema.index({ city: 1, role: 1 });
+userSchema.index({ email: 1, role: 1 }, { unique: true });
 
 export const User = mongoose.model("User", userSchema);

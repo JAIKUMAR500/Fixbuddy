@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronRight, MapPin, Calendar } from "lucide-react";
+import { ChevronRight, MapPin, Calendar, Plus, ClipboardList } from "lucide-react";
 import { View } from "../../types";
 import { Tabs, StatusBadge, EmptyState, Card } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
@@ -18,12 +18,38 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
     if (tab === "Cancelled") return ["cancelled", "declined"].includes(request.status);
     return true;
   });
+  const counts = {
+    active: rows.filter((r) => ["matching", "open", "requested", "accepted", "in_progress"].includes(r.status)).length,
+    upcoming: rows.filter((r) => r.status === "scheduled").length,
+    completed: rows.filter((r) => ["completed", "reviewed"].includes(r.status)).length,
+    cancelled: rows.filter((r) => ["cancelled", "declined"].includes(r.status)).length,
+  };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 pt-4 pb-24">
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-bold text-slate-900 mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>My Requests</h1>
-        <p className="text-slate-500 text-sm">Track all your service requests</p>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-24">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand mb-2">Customer workspace</p>
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 mb-1">My Requests</h1>
+          <p className="text-slate-500 text-sm">Keep every service request and booking in one place.</p>
+        </div>
+        <button type="button" onClick={() => navigate("create-request")} className="inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-brand text-white text-sm font-semibold shadow-sm hover:bg-brand-dark">
+          <Plus className="w-4 h-4" /> New request
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        {[
+          ["Active", counts.active, "bg-blue-50 text-brand"],
+          ["Upcoming", counts.upcoming, "bg-amber-50 text-amber-700"],
+          ["Completed", counts.completed, "bg-emerald-50 text-emerald-700"],
+          ["Cancelled", counts.cancelled, "bg-slate-100 text-slate-600"],
+        ].map(([label, count, tone]) => (
+          <button key={label} type="button" onClick={() => setTab(String(label))} className={`rounded-2xl border border-slate-200 bg-white p-3 text-left hover:border-brand/30 ${tab === label ? "ring-2 ring-brand/15" : ""}`}>
+            <span className={`inline-flex rounded-lg px-2 py-1 text-[11px] font-semibold ${tone}`}>{label}</span>
+            <p className="mt-2 text-2xl font-bold text-slate-900">{count}</p>
+          </button>
+        ))}
       </div>
 
       <Tabs
@@ -58,12 +84,13 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
             >
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <h3 className="font-semibold text-slate-900 text-sm">{r.category}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{r.provider?.name || "Finding a provider"}</p>
+                  <div className="flex items-center gap-2 mb-1"><ClipboardList className="w-4 h-4 text-brand" /><h3 className="font-semibold text-slate-900 text-sm">{r.category}</h3></div>
+                  <p className="text-xs text-slate-500 mt-0.5">{r.provider?.name || "Finding a provider"} · {r.code}</p>
                 </div>
                 <StatusBadge status={r.status} />
               </div>
-              <div className="flex flex-wrap gap-3 text-xs text-slate-400 mb-3">
+              <p className="text-sm text-slate-600 line-clamp-2 mb-4">{r.description}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-500 mb-3">
                 <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{r.scheduledLabel || r.timing}</span>
                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{r.area || r.city}</span>
               </div>

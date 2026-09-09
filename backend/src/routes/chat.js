@@ -19,8 +19,18 @@ router.post(
     if (!doc) throw httpError(404, "Request not found");
     const mine = String(doc.customerId) === req.userId || String(doc.providerId) === req.userId || req.user.role === "admin";
     if (!mine) throw httpError(403, "Not your job");
-    if (!doc.providerId) throw httpError(400, "Accept the job first, then you can chat");
-    const conv = await ensureConversation(doc);
+    let conversationRequest = doc;
+    if (!doc.providerId) {
+      const selectedProviderId = String(req.body.providerId || "");
+      if (!selectedProviderId) throw httpError(400, "Select a worker before starting a conversation");
+      const selectedProvider = await User.findOne({ _id: selectedProviderId, role: "worker", status: "active" }).select("_id").lean();
+      if (!selectedProvider) throw httpError(400, "This worker is not available for messaging");
+      if (isFulfiller(req.user.role) && selectedProviderId !== String(req.userId)) {
+        throw httpError(403, "You can only open your own worker conversations");
+      }
+      conversationRequest = { ...doc.toObject(), providerId: selectedProvider._id };
+    }
+    const conv = await ensureConversation(conversationRequest);
     if (!conv) throw httpError(400, "Could not start chat");
     res.json({ conversationId: String(conv._id), requestId: String(doc._id) });
   })

@@ -148,8 +148,8 @@ router.post(
     const { name, email, phone, password, role } = req.body || {};
     if (!name || !email || !password) throw httpError(400, "Name, email and password are required");
     const nextRole = ["customer", "worker", "business", "admin"].includes(role) ? role : "customer";
-    const exists = await User.findOne({ email: String(email).toLowerCase() }).lean();
-    if (exists) throw httpError(409, "Email already in use");
+    const exists = await User.findOne({ email: String(email).toLowerCase(), role: nextRole }).lean();
+    if (exists) throw httpError(409, "Email already in use for this role");
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await createUserWithCode({
       name,

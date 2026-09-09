@@ -23,7 +23,6 @@ export async function matchProviders(request) {
     role: "worker",
     status: "active",
     "provider.onboarded": true,
-    "provider.available": true,
   })
     .select("name avatar phone city area lat lng provider")
     .lean();
@@ -76,11 +75,17 @@ export async function matchProviders(request) {
       if (prof.verified) score += 8;
       if (prof.available) score += 6;
       score += Math.min(10, Number(prof.ratingAvg || 0) * 2);
-      const distanceLabel = dist != null ? `${dist.toFixed(1)} km` : "nearby";
-      return { provider: p, score, reason: reasons.join(", ") || "available nearby", distance: distanceLabel };
+      const distanceLabel = dist != null ? `${dist.toFixed(2)} km` : "Distance unavailable";
+      return {
+        provider: p,
+        score,
+        reason: reasons.join(", ") || (prof.available !== false ? "available nearby" : "currently unavailable"),
+        distance: distanceLabel,
+        distanceKm: dist,
+        available: prof.available !== false,
+      };
     })
-    .filter((x) => x.score >= 18)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => Number(b.available) - Number(a.available) || b.score - a.score || (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
     .slice(0, 16);
 
   return scored;
