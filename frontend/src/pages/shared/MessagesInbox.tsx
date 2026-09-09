@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Send, ArrowLeft, Phone, Image, Mic } from "lucide-react";
 import { View } from "../../types";
 import { Avatar, EmptyState, Skeleton } from "../../components/ui";
-import { ChatAPI, uploadMedia, type ChatMsg, type ChatThread } from "../../api/client";
+import { ChatAPI, uploadMedia, mediaUrl, type ChatMsg, type ChatThread } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { startCall, jobAllowsCall } from "../../api/phone";
 
@@ -183,10 +183,10 @@ export default function MessagesInbox({
               <div key={cm.id} className={`flex ${cm.sender === mine ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-xs px-4 py-2.5 rounded-2xl text-sm ${cm.sender === mine ? "bg-sky-600 text-white" : "bg-white border border-sky-100"}`}>
                   {cm.kind === "image" && cm.mediaUrl ? (
-                    <img src={cm.mediaUrl} alt="" className="rounded-xl max-h-56 w-full object-cover mb-1" />
+                    <img src={mediaUrl(cm.mediaUrl)} alt="" className="rounded-xl max-h-56 w-full object-cover mb-1" />
                   ) : null}
                   {cm.kind === "voice" && cm.mediaUrl ? (
-                    <audio controls src={cm.mediaUrl} className="w-52" />
+                    <audio controls src={mediaUrl(cm.mediaUrl)} className="w-52" />
                   ) : null}
                   {cm.kind !== "image" && cm.kind !== "voice" ? cm.text : null}
                   <p className={`text-[10px] mt-1 ${cm.sender === mine ? "text-sky-100" : "text-slate-400"}`}>{cm.time}</p>

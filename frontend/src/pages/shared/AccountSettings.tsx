@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bell, Globe, Lock, MapPin, Shield, User, Loader2, Camera } from "lucide-react";
+import { Bell, Globe, Lock, MapPin, Shield, User, Loader2, Camera, LogOut } from "lucide-react";
 import { Button, Card, Input, Textarea } from "../../components/ui";
 import { useApp } from "../../api/AppContext";
 import { AuthAPI, uploadImage } from "../../api/client";
@@ -8,7 +8,7 @@ import { UserIdCard } from "./AccountModules";
 import { useLang } from "../../i18n/LangContext";
 
 export default function AccountSettings() {
-  const { user, setUser } = useApp();
+  const { user, setUser, logout } = useApp();
   const { t, lang, setLang } = useLang();
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
@@ -195,6 +195,14 @@ export default function AccountSettings() {
         <h2 className="font-semibold flex items-center gap-2"><Lock className="w-4 h-4 text-brand" /> Security</h2>
         <p className="text-sm text-slate-500">You are signed in as {user?.email}. License {user?.license?.status || "none"} · {user?.userCode}.</p>
       </Card>
+
+      <button
+        type="button"
+        onClick={logout}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-red-200 text-red-500 font-medium text-sm hover:bg-red-50 transition-colors lg:hidden"
+      >
+        <LogOut className="w-4 h-4" /> Sign Out
+      </button>
     </div>
   );
 }

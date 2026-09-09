@@ -11,6 +11,7 @@ import {
   Star,
   TrendingUp,
   Users,
+  LogOut,
 } from "lucide-react";
 import { View } from "../../types";
 import {
@@ -28,6 +29,7 @@ import {
   uploadImage,
 } from "../../api/client";
 import { Badge, Button, Card, Input, Skeleton, StatusBadge } from "../../components/ui";
+import { useApp } from "../../api/AppContext";
 import { roleLabel } from "../../api/roles";
 import AnalyticsDashboard from "../shared/AnalyticsDashboard";
 import { ComboChart, dayLabel } from "../../components/Charts";
@@ -81,6 +83,7 @@ function when(d?: string) {
 }
 
 export default function AdminPortal({ view }: { view: View; embedded?: boolean }) {
+  const { logout } = useApp();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [requests, setRequests] = useState<JobRequest[]>([]);
@@ -725,6 +728,15 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
             </div>
           </Card>
         </div>
+      )}
+      {view === "admin-settings" && (
+        <button
+          type="button"
+          onClick={logout}
+          className="mt-4 w-full lg:hidden flex items-center justify-center gap-2 py-3 rounded-xl border border-red-200 text-red-500 font-medium text-sm hover:bg-red-50"
+        >
+          <LogOut className="w-4 h-4" /> Sign Out
+        </button>
       )}
     </div>
   );

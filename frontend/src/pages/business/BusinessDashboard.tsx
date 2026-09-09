@@ -13,7 +13,7 @@ import { View } from "../../types";
 import { StatCard, Card, SectionHeader, Badge, RatingStars, Button } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
-import type { JobRequest } from "../../api/client";
+import { mediaUrl, type JobRequest } from "../../api/client";
 
 export default function BusinessDashboard({ navigate }: { navigate: (v: View) => void }) {
   const { user } = useApp();
@@ -31,7 +31,7 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
         <div className="flex items-center gap-4">
           <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl overflow-hidden border-4 border-white shadow-lg bg-sky-100 flex-shrink-0 ring-2 ring-sky-100">
             {user?.avatar ? (
-              <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+              <img src={mediaUrl(user.avatar)} alt="" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-sky-700">
                 {(user?.provider?.businessName || user?.name || "U").slice(0, 1)}

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { Camera, Image as ImageIcon, Loader2, Plus, Replace, X } from "lucide-react";
-import { uploadImage } from "../api/client";
+import { uploadImage, uploadRemoteUrl, uploadDataUrl, mediaUrl } from "../api/client";
 
 type Variant = "logo" | "cover" | "gallery";
 
@@ -38,13 +38,18 @@ export default function ImageUpload({
     try {
       const next = multiple ? [...urls] : [];
       const room = Math.max(0, max - next.length);
+      let skipped = 0;
       for (const file of Array.from(files).slice(0, room || 1)) {
-        if (!file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".svg")) continue;
+        if (!file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".svg") && file.type) {
+          skipped += 1;
+          continue;
+        }
         const { url } = await uploadImage(file);
         if (multiple) next.push(url);
         else next[0] = url;
       }
       onChange(next.slice(0, max));
+      if (skipped) setError("Some files were skipped. Use JPG, PNG, WebP, or SVG.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -57,17 +62,27 @@ export default function ImageUpload({
     if (!busy) inputRef.current?.click();
   };
 
-  const addRemoteUrl = () => {
+  const addRemoteUrl = async () => {
     const trimmed = remote.trim();
     if (!trimmed) return;
     if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith("data:image")) {
       setError("Paste an https image URL or SVG URL.");
       return;
     }
-    const next = multiple ? [...urls, trimmed] : [trimmed];
-    onChange(next.slice(0, max));
-    setRemote("");
+    setBusy(true);
     setError("");
+    try {
+      const { url } = trimmed.startsWith("data:image")
+        ? await uploadDataUrl(trimmed, "pasted.png")
+        : await uploadRemoteUrl(trimmed);
+      const next = multiple ? [...urls, url] : [url];
+      onChange(next.slice(0, max));
+      setRemote("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add that image URL");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = (url: string) => onChange(urls.filter((item) => item !== url));
@@ -125,7 +140,7 @@ export default function ImageUpload({
         <div className="bg-white rounded-3xl border border-sky-100 p-4 sm:p-5">
           <p className="text-sm font-semibold text-slate-800 mb-3">{label}</p>
           <div className="relative mx-auto w-40 h-40 sm:w-48 sm:h-48 rounded-3xl overflow-hidden border-2 border-white shadow-md bg-sky-50">
-            <img src={urls[0]} alt="Logo" className="w-full h-full object-cover" />
+            <img src={mediaUrl(urls[0])} alt="Logo" className="w-full h-full object-cover" />
             {busy && (
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-white animate-spin" />
@@ -151,7 +166,7 @@ export default function ImageUpload({
       ) : kind === "cover" && urls[0] ? (
         <div className="bg-white rounded-3xl border border-sky-100 overflow-hidden">
           <div className="relative">
-            <img src={urls[0]} alt="Cover" className="w-full h-44 sm:h-56 object-cover" />
+            <img src={mediaUrl(urls[0])} alt="Cover" className="w-full h-44 sm:h-56 object-cover" />
             {busy && (
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-white animate-spin" />
@@ -196,7 +211,7 @@ export default function ImageUpload({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {urls.map((url) => (
               <div key={url} className="relative rounded-2xl overflow-hidden h-32 sm:h-40 bg-sky-50">
-                <img src={url} alt="" className="w-full h-full object-cover" />
+                <img src={mediaUrl(url)} alt="" className="w-full h-full object-cover" />
                 <button
                   type="button"
                   onClick={() => remove(url)}

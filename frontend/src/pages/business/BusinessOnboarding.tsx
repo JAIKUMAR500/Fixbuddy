@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, Loader2, MapPin, LogOut } from "lucide-react";
 import { View } from "../../types";
 import { Button, Input, Textarea, StepIndicator, Card } from "../../components/ui";
-import { CategoryAPI, ProviderAPI, type ServiceCategory } from "../../api/client";
+import { CategoryAPI, ProviderAPI, mediaUrl, type ServiceCategory } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { capturePlace } from "../../api/geo";
 import ImageUpload from "../../components/ImageUpload";
 
 export default function BusinessOnboarding({ navigate }: { navigate: (v: View) => void }) {
-  const { setUser, user } = useApp();
+  const { setUser, user, logout } = useApp();
   const p = user?.provider;
   const [step, setStep] = useState(1);
   const [bizName, setBizName] = useState(p?.businessName || user?.name || "");
@@ -122,6 +122,9 @@ export default function BusinessOnboarding({ navigate }: { navigate: (v: View) =
                 {step === 8 && "Review Profile"}
               </p>
             </div>
+            <button type="button" onClick={logout} className="p-2 rounded-xl hover:bg-red-50 min-w-11 min-h-11" aria-label="Sign out">
+              <LogOut className="w-5 h-5 text-slate-600" />
+            </button>
           </div>
           <StepIndicator current={step} total={TOTAL} />
         </div>
@@ -297,10 +300,10 @@ export default function BusinessOnboarding({ navigate }: { navigate: (v: View) =
               <p className="text-slate-500 text-sm">Everything looks good? Let's go!</p>
             </div>
             <Card padding="lg" className="space-y-4 overflow-hidden">
-              {cover[0] && <img src={cover[0]} alt="" className="w-full h-36 object-cover rounded-2xl -mt-1" />}
+              {cover[0] && <img src={mediaUrl(cover[0])} alt="" className="w-full h-36 object-cover rounded-2xl -mt-1" />}
               <div className="flex items-center gap-3">
                 {logo[0] ? (
-                  <img src={logo[0]} alt="" className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow" />
+                  <img src={mediaUrl(logo[0])} alt="" className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow" />
                 ) : null}
                 <div>
                   <p className="font-bold text-slate-900">{bizName || "—"}</p>
@@ -310,7 +313,7 @@ export default function BusinessOnboarding({ navigate }: { navigate: (v: View) =
               {photos.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {photos.slice(0, 6).map((url) => (
-                    <img key={url} src={url} alt="" className="h-20 w-full rounded-xl object-cover" />
+                    <img key={url} src={mediaUrl(url)} alt="" className="h-20 w-full rounded-xl object-cover" />
                   ))}
                 </div>
               )}

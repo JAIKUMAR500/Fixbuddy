@@ -169,11 +169,7 @@ export default function AppShell({
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-white/30 bg-white/10 flex-shrink-0">
-              {user?.avatar ? (
-                <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <Avatar src="" name={shown} size="lg" className="rounded-2xl w-full h-full" />
-              )}
+              <Avatar src={user?.avatar} name={shown} size="lg" className="rounded-2xl w-full h-full" />
             </div>
             <div className="min-w-0">
               <p className="text-white text-sm font-medium truncate">{shown}</p>
@@ -225,6 +221,24 @@ export default function AppShell({
                 </button>
               ))}
             </nav>
+            <div className="p-4 border-t border-white/10">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-11 h-11 rounded-2xl overflow-hidden border-2 border-white/30 bg-white/10 flex-shrink-0">
+                  <Avatar src={user?.avatar} name={shown} size="md" className="rounded-2xl w-full h-full" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{shown}</p>
+                  <p className="text-[11px] text-slate-400 truncate font-mono">{user?.userCode || roleLabel(user?.role)}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onLogout?.(); }}
+                className="w-full min-h-11 flex items-center justify-center gap-2 text-sm font-semibold text-red-300 bg-white/5 hover:bg-red-500/20 rounded-xl"
+              >
+                <LogOut className="w-4 h-4" /> {t("nav.signOut")}
+              </button>
+            </div>
           </aside>
         </div>
       )}
@@ -241,7 +255,15 @@ export default function AppShell({
           {variant === "customer" && (
             <p className="hidden sm:block text-xs text-slate-500 font-mono">{user?.userCode} · {user?.city || "Your city"}</p>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={onLogout}
+              className="lg:hidden p-3 rounded-xl hover:bg-red-50 min-w-11 min-h-11"
+              aria-label={t("nav.signOut")}
+            >
+              <LogOut className="w-6 h-6 text-slate-600" />
+            </button>
             <button onClick={() => navigate(notifView(variant))} className="relative p-3 rounded-xl hover:bg-brand-soft min-w-11 min-h-11">
               <Bell className="w-6 h-6 text-slate-600" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-brand rounded-full" />
@@ -251,11 +273,7 @@ export default function AppShell({
               className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-50"
             >
               <div className="w-11 h-11 rounded-2xl overflow-hidden border border-slate-200 bg-sky-50">
-                {user?.avatar ? (
-                  <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <Avatar src="" name={shown} size="md" className="rounded-2xl w-full h-full" />
-                )}
+                <Avatar src={user?.avatar} name={shown} size="md" className="rounded-2xl w-full h-full" />
               </div>
               <span className="hidden sm:block text-sm font-medium text-slate-800">{shown.split(" ")[0]}</span>
             </button>

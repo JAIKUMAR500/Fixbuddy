@@ -25,6 +25,7 @@ import { startCron } from "./jobs/cron.js";
 
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 
 const allowedOrigins = new Set(
   [

@@ -13,14 +13,28 @@ function ensureDir() {
 }
 
 function publicUrl(req, name) {
-  const base = (env.publicUrl || `${req.protocol}://${req.get("host") || "localhost:4000"}`).replace(/\/$/, "");
+  let base = String(env.publicUrl || "").replace(/\/$/, "");
+  if (!base) {
+    const proto = String(req.get("x-forwarded-proto") || req.protocol || "https")
+      .split(",")[0]
+      .trim();
+    const host = String(req.get("x-forwarded-host") || req.get("host") || "localhost:4000")
+      .split(",")[0]
+      .trim();
+    base = `${proto}://${host}`;
+  }
+  if (base.startsWith("http://") && !/localhost|127\.0\.0\.1/i.test(base)) {
+    base = `https://${base.slice(7)}`;
+  }
   return `${base}/api/uploads/${name}`;
 }
 
 function parseDataUrl(dataUrl) {
-  const match = String(dataUrl || "").match(/^data:((?:image|audio)\/[a-zA-Z0-9.+-]+)(?:;charset=[^;]+)?;base64,(.+)$/);
+  const match = String(dataUrl || "")
+    .trim()
+    .match(/^data:((?:image|audio)\/[a-zA-Z0-9.+-]+)(?:;charset=[^;]+)?;base64,([\s\S]+)$/);
   if (!match) return null;
-  return { mime: match[1].toLowerCase(), buf: Buffer.from(match[2], "base64") };
+  return { mime: match[1].toLowerCase(), buf: Buffer.from(match[2].replace(/\s/g, ""), "base64") };
 }
 
 function extFor(mime, isAudio) {
@@ -42,6 +56,9 @@ router.post(
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) throw httpError(400, "Invalid file. Use JPG, PNG, WebP, SVG, or a voice recording.");
     const { mime, buf } = parsed;
+    if (mime.includes("heic") || mime.includes("heif")) {
+      throw httpError(400, "iPhone HEIC photos are not supported. Export as JPG, then upload.");
+    }
     const isAudio = mime.startsWith("audio/");
     const ext = extFor(mime, isAudio);
     const max = isAudio ? 8 * 1024 * 1024 : 5 * 1024 * 1024;

@@ -53,46 +53,92 @@ function readFileAsDataUrl(file: File) {
 }
 
 function compressDataUrl(dataUrl: string, max = 1600, quality = 0.82) {
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (!w || !h) {
+        resolve(dataUrl);
+        return;
+      }
+      const scale = Math.min(1, max / Math.max(w, h));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         resolve(dataUrl);
         return;
       }
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       resolve(canvas.toDataURL("image/jpeg", quality));
     };
-    img.onerror = () => resolve(dataUrl);
+    img.onerror = () => reject(new Error("Could not read that image. Use JPG, PNG, or WebP."));
     img.src = dataUrl;
   });
 }
 
+function isHeic(file: File) {
+  const n = (file.name || "").toLowerCase();
+  const t = (file.type || "").toLowerCase();
+  return t.includes("heic") || t.includes("heif") || n.endsWith(".heic") || n.endsWith(".heif");
+}
+
+function looksLikeImage(file: File) {
+  const n = (file.name || "").toLowerCase();
+  if (n.endsWith(".svg") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(n)) return true;
+  return (file.type || "").startsWith("image/");
+}
+
 export async function uploadImage(file: File) {
-  if (file.type && !file.type.startsWith("image/") && !file.name?.toLowerCase().endsWith(".svg")) {
+  if (isHeic(file)) {
+    throw new Error("iPhone HEIC photos are not supported. In Photos, export as JPG, then upload.");
+  }
+  if (!looksLikeImage(file)) {
     throw new Error("Please choose a JPG, PNG, WebP, or SVG file.");
   }
   const raw = await readFileAsDataUrl(file);
-  const dataUrl = file.type === "image/svg+xml" || file.name?.toLowerCase().endsWith(".svg") ? raw : await compressDataUrl(raw);
+  const dataUrl =
+    file.type === "image/svg+xml" || (file.name || "").toLowerCase().endsWith(".svg") ? raw : await compressDataUrl(raw);
   return api<{ url: string; kind?: string }>("/upload", { method: "POST", body: JSON.stringify({ dataUrl, filename: file.name }) });
 }
 
 export function mediaUrl(url?: string | null) {
   if (!url) return "";
-  if (/^(https?:|data:|blob:)/i.test(url)) return url;
-  const base = BASE.replace(/\/api\/?$/, "");
-  if (url.startsWith("/")) return `${base}${url}`;
-  return url;
+  const raw = String(url).trim();
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+  const apiOrigin = BASE.replace(/\/api\/?$/, "");
+  const withoutLocal = raw.replace(/^https?:\/\/(localhost|127\.0\.0\.1):\d+/i, "");
+  if (withoutLocal.startsWith("/")) return `${apiOrigin}${withoutLocal}`;
+  if (raw.startsWith("/")) return `${apiOrigin}${raw}`;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.pathname.startsWith("/api/uploads")) {
+      return `${apiOrigin}${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    /* keep original */
+  }
+  return raw;
+}
+
+export async function uploadRemoteUrl(url: string) {
+  return api<{ url: string; kind?: string }>("/upload", { method: "POST", body: JSON.stringify({ url }) });
+}
+
+export async function uploadDataUrl(dataUrl: string, filename = "photo.png") {
+  return api<{ url: string; kind?: string }>("/upload", { method: "POST", body: JSON.stringify({ dataUrl, filename }) });
 }
 
 export async function uploadMedia(file: File) {
   const isAudio = file.type.startsWith("audio/");
-  if (!isAudio && file.type && !file.type.startsWith("image/")) {
+  if (isHeic(file)) {
+    throw new Error("iPhone HEIC photos are not supported. Export as JPG, then send.");
+  }
+  if (!isAudio && file.type && !file.type.startsWith("image/") && !looksLikeImage(file)) {
     throw new Error("Please choose a photo or a voice recording.");
   }
   const dataUrl = isAudio ? await readFileAsDataUrl(file) : await compressDataUrl(await readFileAsDataUrl(file));

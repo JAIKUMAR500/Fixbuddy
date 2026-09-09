@@ -2,7 +2,7 @@ import React from "react";
 import { Copy, KeyRound, LifeBuoy, Heart, Clock, Wallet } from "lucide-react";
 import { Badge, Button, Card } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
-import type { JobRequest, Provider } from "../../api/client";
+import { mediaUrl, type JobRequest, type Provider } from "../../api/client";
 import { roleLabel } from "../../api/roles";
 import SupportContact from "../../components/SupportContact";
 import AnalyticsDashboard from "./AnalyticsDashboard";
@@ -20,7 +20,7 @@ export function UserIdCard() {
       <div className="flex items-center gap-4">
         <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/20 bg-white/10 flex-shrink-0">
           {user?.avatar ? (
-            <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+              <img src={mediaUrl(user.avatar)} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white">
               {(user?.name || "U").slice(0, 1)}

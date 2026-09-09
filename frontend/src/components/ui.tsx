@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Star } from "lucide-react";
+import { mediaUrl } from "../api/client";
 
 // ─── Button ───────────────────────────────────────────────────────────────────
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -181,6 +182,7 @@ interface AvatarProps {
 }
 
 export function Avatar({ src, name, size = "md", className = "" }: AvatarProps) {
+  const [failed, setFailed] = useState(false);
   const sizes = { sm: "w-8 h-8 text-xs", md: "w-10 h-10 text-sm", lg: "w-12 h-12 text-base", xl: "w-16 h-16 text-xl", "2xl": "w-24 h-24 text-2xl" };
   const initials = name
     .split(" ")
@@ -188,12 +190,23 @@ export function Avatar({ src, name, size = "md", className = "" }: AvatarProps) 
     .join("")
     .toUpperCase()
     .slice(0, 2);
-  return src ? (
-    <img src={src} alt={name} className={`${sizes[size]} rounded-full object-cover flex-shrink-0 ${className}`} />
-  ) : (
+  const href = mediaUrl(src);
+  React.useEffect(() => {
+    setFailed(false);
+  }, [href]);
+  const fallback = (
     <div className={`${sizes[size]} rounded-full bg-brand-soft text-brand font-semibold flex items-center justify-center flex-shrink-0 ${className}`}>
       {initials}
     </div>
+  );
+  if (!href || failed) return fallback;
+  return (
+    <img
+      src={href}
+      alt={name}
+      className={`${sizes[size]} rounded-full object-cover flex-shrink-0 ${className}`}
+      onError={() => setFailed(true)}
+    />
   );
 }
 

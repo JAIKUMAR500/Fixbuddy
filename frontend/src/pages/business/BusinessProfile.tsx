@@ -1,14 +1,14 @@
 import React, { useRef, useState } from "react";
-import { Camera, Edit2, MapPin, Clock, Phone, Mail, CheckCircle, Eye, Loader2 } from "lucide-react";
+import { Camera, Edit2, MapPin, Clock, Phone, Mail, CheckCircle, Eye, Loader2, LogOut } from "lucide-react";
 import { View } from "../../types";
 import { Button, Card, VerifiedBadge, RatingStars } from "../../components/ui";
 import { useApp } from "../../api/AppContext";
-import { AuthAPI, ProviderAPI, uploadImage, type Provider } from "../../api/client";
+import { AuthAPI, ProviderAPI, uploadImage, mediaUrl, type Provider } from "../../api/client";
 import ImageUpload from "../../components/ImageUpload";
 import { serviceLabel } from "../../api/display";
 
 export default function BusinessProfile({ navigate }: { navigate: (v: View) => void }) {
-  const { user, setUser, setSelectedProvider } = useApp();
+  const { user, setUser, setSelectedProvider, logout } = useApp();
   const p = user?.provider;
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,7 +87,7 @@ export default function BusinessProfile({ navigate }: { navigate: (v: View) => v
 
       <div className="relative rounded-3xl overflow-hidden h-48 sm:h-64 md:h-72 bg-sky-100 shadow-sm">
         {cover ? (
-          <img src={cover} alt="cover" className="w-full h-full object-cover" />
+          <img src={mediaUrl(cover)} alt="cover" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-base text-sky-700">Add a cover photo</div>
         )}
@@ -102,7 +102,7 @@ export default function BusinessProfile({ navigate }: { navigate: (v: View) => v
         <div className="flex flex-col sm:flex-row gap-4 items-start">
           <div className="relative -mt-16 sm:-mt-20">
             {logo ? (
-              <img src={logo} alt="logo" className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl object-cover border-4 border-white shadow-xl bg-white" />
+              <img src={mediaUrl(logo)} alt="logo" className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl object-cover border-4 border-white shadow-xl bg-white" />
             ) : (
               <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl border-4 border-white shadow-xl bg-sky-100 text-sky-700 font-bold text-3xl flex items-center justify-center">
                 {(p?.businessName || user?.name || "B").slice(0, 1)}
@@ -265,6 +265,14 @@ export default function BusinessProfile({ navigate }: { navigate: (v: View) => v
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-sky-200 text-sky-600 font-medium text-sm hover:bg-sky-50 transition-colors"
       >
         <Eye className="w-4 h-4" /> Preview as Customer
+      </button>
+
+      <button
+        type="button"
+        onClick={logout}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-red-200 text-red-500 font-medium text-sm hover:bg-red-50 transition-colors lg:hidden"
+      >
+        <LogOut className="w-4 h-4" /> Sign Out
       </button>
     </div>
   );
