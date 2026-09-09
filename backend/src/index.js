@@ -25,17 +25,38 @@ import { startCron } from "./jobs/cron.js";
 
 const app = express();
 app.disable("x-powered-by");
-const origins = String(env.clientOrigin)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-app.use(cors({ origin: origins.length === 1 ? origins[0] : origins, credentials: true }));
+
+const allowedOrigins = new Set(
+  [
+    "https://fixbuddy-ivory.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:8443",
+    ...String(env.clientOrigin)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ].map((s) => s.replace(/\/$/, "")),
+);
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.has(origin.replace(/\/$/, ""))) {
+        return cb(null, true);
+      }
+      cb(null, false);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 app.use(express.json({ limit: "12mb" }));
 app.use(morgan("tiny"));
 app.use("/api/uploads", express.static(uploadDir));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "fixbuddy-api", db: env.mongoUri });
+  res.json({ ok: true, service: "fixbuddy-api" });
 });
 
 app.get("/api/public/config", async (_req, res) => {
@@ -88,7 +109,7 @@ connectDb()
     await ensureProductionAccounts();
     app.listen(env.port, () => {
       console.log(`Fixbuddy API on http://localhost:${env.port}`);
-      console.log(`MongoDB ${env.mongoUri}`);
+      console.log("MongoDB connected");
       startCron();
     });
   })

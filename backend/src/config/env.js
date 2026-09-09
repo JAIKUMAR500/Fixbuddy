@@ -11,7 +11,9 @@ export const env = {
   mongoUri: process.env.MONGODB_URI || "mongodb://localhost:27017/fixbuddy",
   jwtSecret: process.env.JWT_SECRET || "fixbuddy-dev-jwt-secret-change-in-production",
   jwtExpires: process.env.JWT_EXPIRES || "7d",
-  clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173,http://localhost:8443",
+  clientOrigin:
+    process.env.CLIENT_ORIGIN ||
+    "http://localhost:5173,http://localhost:8443,https://fixbuddy-ivory.vercel.app",
   publicUrl: process.env.API_PUBLIC_URL || "",
   supportEmail: process.env.SUPPORT_EMAIL || "jaikuma500500@gmail.com",
   smtpHost: process.env.SMTP_HOST || "smtp.gmail.com",

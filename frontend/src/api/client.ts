@@ -1,4 +1,11 @@
-const BASE = (import.meta.env.VITE_API_URL as string | undefined) || "/api";
+function apiBase() {
+  const raw = String(import.meta.env.VITE_API_URL || "").trim();
+  if (!raw) return "/api";
+  const noSlash = raw.replace(/\/$/, "");
+  return noSlash.endsWith("/api") ? noSlash : `${noSlash}/api`;
+}
+
+export const BASE = apiBase();
 
 export class ApiError extends Error {
   status: number;
@@ -78,7 +85,7 @@ export async function uploadImage(file: File) {
 export function mediaUrl(url?: string | null) {
   if (!url) return "";
   if (/^(https?:|data:|blob:)/i.test(url)) return url;
-  const base = ((import.meta.env.VITE_API_URL as string | undefined) || "/api").replace(/\/api\/?$/, "");
+  const base = BASE.replace(/\/api\/?$/, "");
   if (url.startsWith("/")) return `${base}${url}`;
   return url;
 }

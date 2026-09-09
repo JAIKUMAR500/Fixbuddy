@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { api } from "../api/client";
 
 function GoogleMark() {
   return (
@@ -32,8 +33,7 @@ export default function GoogleSignIn({
   cbRef.current = onCredential;
 
   useEffect(() => {
-    fetch("/api/public/config")
-      .then((r) => r.json())
+    api<{ googleClientId?: string }>("/public/config")
       .then((d) => setClientId(String(d.googleClientId || "").trim()))
       .catch(() => setClientId(""))
       .finally(() => setLoading(false));

@@ -41,5 +41,5 @@ Photos, SVG, and voice notes are saved on the API and returned as **URLs** (`/ap
 1. MongoDB Atlas for `MONGODB_URI`
 2. Host `backend` (Render / Railway / Fly)
 3. Host `frontend` (Vercel)
-4. Set `VITE_API_URL` on the frontend to `https://your-api/api`
-5. Set `CLIENT_ORIGIN` and `API_PUBLIC_URL` on the backend
+4. Set `VITE_API_URL` on Vercel to your Render URL (with or without `/api`)
+5. Set `CLIENT_ORIGIN` (your Vercel URL) and `API_PUBLIC_URL` (your Render URL) on the backend
