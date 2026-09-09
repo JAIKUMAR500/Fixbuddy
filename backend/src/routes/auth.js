@@ -10,6 +10,7 @@ import { isProviderAccount, normalizeSignupRole } from "../utils/roles.js";
 import { buildLicense, hasValidLicense, ensureLoginLicense, createUserWithCode, ensureUserCode } from "../utils/license.js";
 import { env } from "../config/env.js";
 import { sendMail, enqueueMail, otpEmailHtml, getMailConfig } from "../services/mail.js";
+import { verifyGoogleIdToken } from "../utils/googleAuth.js";
 
 const router = Router();
 
@@ -224,20 +225,13 @@ router.post(
 router.post(
   "/google",
   asyncHandler(async (req, res) => {
-    const credential = String(req.body.credential || "");
-    if (!credential) throw httpError(400, "Google sign-in token is missing");
-    const check = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
-    if (!check.ok) throw httpError(401, "Google sign-in failed");
-    const payload = await check.json();
     const { getSettings } = await import("../models/PlatformSettings.js");
     const settings = await getSettings();
-    const allowedClient = String(settings.googleClientId || env.googleClientId || "").trim();
-    if (allowedClient && payload.aud !== allowedClient) throw httpError(401, "Google client is not allowed");
-    if (payload.email_verified !== "true" && payload.email_verified !== true) {
-      throw httpError(401, "Google email is not verified");
-    }
-    const email = String(payload.email || "").toLowerCase();
-    if (!email) throw httpError(400, "Google did not return an email");
+    const payload = await verifyGoogleIdToken(req.body.credential, [
+      settings.googleClientId,
+      env.googleClientId,
+    ]);
+    const email = payload.email;
     let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }] });
     if (!user) {
       const nextRole = normalizeSignupRole(req.body.role) || "customer";

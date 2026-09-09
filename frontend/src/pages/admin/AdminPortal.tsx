@@ -691,7 +691,10 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
               value={settings.googleClientId || ""}
               onChange={(e) => setSettings({ ...settings, googleClientId: e.target.value })}
             />
-            <p className="text-xs text-slate-400">Paste a Google Cloud OAuth Web client ID so Sign up with Google works on login and signup.</p>
+            <p className="text-xs text-slate-400">
+              Web client ID from Google Cloud → APIs &amp; Services → Credentials. Authorized JavaScript origins must include
+              https://fixbuddy-ivory.vercel.app and http://localhost:5173. Do not use an Android/iOS client ID.
+            </p>
             <Input label="Commission %" type="number" value={settings.commissionPercent} onChange={(e) => setSettings({ ...settings, commissionPercent: Number(e.target.value) })} />
             <Button onClick={() => void AdminAPI.patchSettings({ ...settings, smtpPass: settings.smtpPass || undefined }).then((r) => { setSettings(r.settings); setPendingMail(r.pendingMail || 0); })}>Save settings</Button>
           </Card>
