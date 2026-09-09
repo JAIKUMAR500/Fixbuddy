@@ -79,7 +79,7 @@ const userSchema = new mongoose.Schema(
       days: { type: Number, default: 0 },
       startsAt: { type: Date, default: null },
       expiresAt: { type: Date, default: null },
-      status: { type: String, enum: ["none", "pending", "active", "expired", "revoked"], default: "pending" },
+      status: { type: String, enum: ["none", "pending", "active", "expired", "revoked"], default: "none" },
       grantedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     },
     provider: { type: providerSchema, default: undefined },

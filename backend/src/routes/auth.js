@@ -7,7 +7,7 @@ import { signToken, auth } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser } from "../utils/serialize.js";
 import { isProviderAccount, normalizeSignupRole } from "../utils/roles.js";
-import { buildLicense, hasValidLicense, createUserWithCode, ensureUserCode } from "../utils/license.js";
+import { buildLicense, hasValidLicense, ensureLoginLicense, createUserWithCode, ensureUserCode } from "../utils/license.js";
 import { env } from "../config/env.js";
 import { sendMail, enqueueMail, otpEmailHtml, getMailConfig } from "../services/mail.js";
 
@@ -57,16 +57,16 @@ router.post(
 
     let user = null;
     if (ident.includes("@")) {
-      user = await User.findOne({ email: ident.toLowerCase() }).select("+passwordHash");
+      user = await User.findOne({ email: ident.toLowerCase() }).select("+passwordHash +googleId");
     } else {
       const digits = phoneDigits(ident);
       if (digits.length >= 10) {
         const last10 = digits.slice(-10);
         const pattern = last10.split("").join("[\\s-]*");
-        const candidates = await User.find({ phone: { $regex: `${pattern}$` } }).select("+passwordHash");
+        const candidates = await User.find({ phone: { $regex: `${pattern}$` } }).select("+passwordHash +googleId");
         const matched = [];
         for (const cand of candidates) {
-          if (await bcrypt.compare(password, cand.passwordHash)) matched.push(cand);
+          if (cand.passwordHash && (await bcrypt.compare(password, cand.passwordHash))) matched.push(cand);
         }
         if (matched.length > 1) {
           throw httpError(401, "This mobile is on more than one account. Sign in with your email.");
@@ -75,9 +75,18 @@ router.post(
       }
     }
     if (!user) throw httpError(401, "Invalid email or password");
+    if (!user.passwordHash) {
+      throw httpError(401, user.googleId ? "This account uses Google. Click Continue with Google." : "Invalid email or password");
+    }
     const ok = ident.includes("@") ? await bcrypt.compare(password, user.passwordHash) : true;
-    if (!ok) throw httpError(401, "Invalid email or password");
+    if (!ok) {
+      throw httpError(
+        401,
+        user.googleId ? "Wrong password. If you signed up with Google, use Continue with Google." : "Invalid email or password"
+      );
+    }
     if (user.status === "suspended") throw httpError(403, "Account suspended");
+    await ensureLoginLicense(user);
     if (!hasValidLicense(user)) {
       throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
     }
@@ -207,6 +216,7 @@ router.post(
     const user = await User.findOneAndUpdate({ email }, { $set: { passwordHash } }, { new: true });
     if (!user) throw httpError(404, "Account not found");
     await Otp.deleteMany({ email, purpose: "reset" });
+    await ensureLoginLicense(user);
     issueAuth(user, res);
   })
 );
@@ -250,6 +260,7 @@ router.post(
     }
     await ensureUserCode(user);
     if (user.status === "suspended") throw httpError(403, "Account suspended");
+    await ensureLoginLicense(user);
     if (!hasValidLicense(user)) {
       throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
     }

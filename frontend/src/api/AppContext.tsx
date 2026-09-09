@@ -66,7 +66,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const { token, user: u } = await AuthAPI.login(email, password);
+      const { token, user: u } = await AuthAPI.login(String(email || "").trim(), password);
       localStorage.setItem("fb_token", token);
       routeAfterAuth(u);
       return u;

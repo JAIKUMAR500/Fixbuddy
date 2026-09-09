@@ -107,6 +107,22 @@ export function licenseView(user) {
 export function hasValidLicense(user) {
   if (!user) return false;
   if (user.role === "admin") return true;
+  const lic = user.license || {};
+  if (lic.status === "revoked") return false;
+  const expiresAt = lic.expiresAt ? new Date(lic.expiresAt) : null;
+  if (expiresAt && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now()) return true;
   const view = licenseView(user);
   return view.status === "active" && view.remainingDays > 0;
+}
+
+/** Signup logs the user in without this check; logout then login must still work. */
+export async function ensureLoginLicense(user) {
+  if (!user || user.role === "admin" || hasValidLicense(user)) return user;
+  const view = licenseView(user);
+  if (view.status === "revoked") return user;
+  if (view.status === "expired" && view.expiresAt) return user;
+  user.license = buildLicense({ days: 7, plan: "trial" });
+  user.markModified?.("license");
+  await user.save();
+  return user;
 }
