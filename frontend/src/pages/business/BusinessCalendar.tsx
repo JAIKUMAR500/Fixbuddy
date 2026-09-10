@@ -111,7 +111,7 @@ export default function BusinessCalendar({ navigate }: { navigate: (v: View) => 
       <div>
         <h2 className="font-semibold text-slate-900 mb-3">All Upcoming Jobs</h2>
         <div className="space-y-2">
-          {jobs.filter((j) => ["accepted", "scheduled", "in_progress"].includes(j.status)).map((job) => (
+          {jobs.filter((j) => ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(j.status)).map((job) => (
             <div key={job.id} className="flex items-center gap-3 bg-white rounded-xl border border-sky-100 px-4 py-3 hover:border-sky-300 transition-all cursor-pointer" onClick={() => { setActiveRequestId(job.id); navigate("job-details"); }}>
               <div className="w-2 h-2 rounded-full bg-sky-400 flex-shrink-0" />
               <div className="flex-1">
@@ -124,7 +124,7 @@ export default function BusinessCalendar({ navigate }: { navigate: (v: View) => 
               </div>
             </div>
           ))}
-          {!jobs.some((j) => ["accepted", "scheduled", "in_progress"].includes(j.status)) && (
+          {!jobs.some((j) => ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(j.status)) && (
             <p className="text-sm text-slate-500">No upcoming jobs yet.</p>
           )}
         </div>

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare, Play, Flag, ChevronRight } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare, Play, Flag, ChevronRight, Navigation, Wallet } from "lucide-react";
 import { View } from "../../types";
 import { Card, EmptyState, Skeleton } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
@@ -8,7 +8,7 @@ import { useApp, useFetch } from "../../api/AppContext";
 import { startCall } from "../../api/phone";
 
 const OPEN = ["open", "requested", "matching"];
-const ACTIVE = ["accepted", "scheduled", "in_progress"];
+const ACTIVE = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"];
 
 export default function WorkRequests({ navigate }: { navigate: (v: View) => void }) {
   const { setActiveRequestId, user } = useApp();
@@ -18,7 +18,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
 
   const requests = data?.requests || [];
   const current = requests.filter(
-    (r) => (ACTIVE.includes(r.status) || r.status === "requested") && r.providerId === user?.id
+    (r) => ACTIVE.includes(r.status) && r.providerId === user?.id
   );
   const available = requests
     .filter((r) => OPEN.includes(r.status) && !r.providerId)
@@ -27,13 +27,24 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
   const mustFinish = worker && current.length > 0;
   const job = current[0];
 
-  const act = async (id: string, kind: "accept" | "decline" | "start" | "complete") => {
+  const act = async (id: string, kind: "accept" | "decline" | "start" | "complete" | "enroute" | "arrive" | "collect") => {
     setBusy(id);
     setActionError("");
     try {
+      const loc = async () => {
+        try {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 }));
+          return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        } catch {
+          return {};
+        }
+      };
       if (kind === "accept") await RequestAPI.accept(id);
       else if (kind === "decline") await RequestAPI.decline(id);
+      else if (kind === "enroute") await RequestAPI.enroute(id, await loc());
+      else if (kind === "arrive") await RequestAPI.arrive(id, await loc());
       else if (kind === "start") await RequestAPI.start(id);
+      else if (kind === "collect") await RequestAPI.collectPayment(id);
       else await RequestAPI.complete(id);
       reload();
     } catch (e) {
@@ -42,6 +53,19 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       setBusy(null);
     }
   };
+
+  useEffect(() => {
+    if (!job?.id || !["accepted", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(job.status)) return;
+    if (!navigator.geolocation) return;
+    const last = { t: 0 };
+    const watch = navigator.geolocation.watchPosition((pos) => {
+      const now = Date.now();
+      if (now - last.t < 15000) return;
+      last.t = now;
+      void RequestAPI.pingLocation(job.id, pos.coords.latitude, pos.coords.longitude).catch(() => {});
+    });
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [job?.id, job?.status]);
 
   const openChat = async (id: string) => {
     setBusy(id);
@@ -67,7 +91,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
         <p className="text-slate-500 text-sm mt-1">
           {mustFinish
             ? "Finish this job, then the next one opens."
-            : "Accept → Start work → Complete. First to accept gets the job."}
+            : "Accept → On the way → Arrived → OTP → Start → Complete. First to accept gets the job."}
         </p>
       </div>
 
@@ -87,8 +111,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
         <ActiveJobCard
           req={job}
           busy={busy === job.id}
-          onStart={() => void act(job.id, "start")}
-          onComplete={() => void act(job.id, "complete")}
+          onAction={(kind) => void act(job.id, kind)}
           onCall={() => startCall(job.customer?.phone)}
           onChat={() => void openChat(job.id)}
           onDetails={() => {
@@ -126,16 +149,14 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
 function ActiveJobCard({
   req,
   busy,
-  onStart,
-  onComplete,
+  onAction,
   onCall,
   onChat,
   onDetails,
 }: {
   req: JobRequest;
   busy: boolean;
-  onStart: () => void;
-  onComplete: () => void;
+  onAction: (kind: "enroute" | "arrive" | "start" | "complete" | "collect") => void;
   onCall: () => void;
   onChat: () => void;
   onDetails: () => void;
@@ -149,7 +170,7 @@ function ActiveJobCard({
           <p className="text-white font-semibold mt-0.5">{req.category}</p>
         </div>
         <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300">
-          {req.status === "in_progress" ? "In progress" : "Accepted"}
+          {req.status.replace(/_/g, " ")}
         </span>
       </div>
       <div className="px-5 pt-5 pb-2">
@@ -158,22 +179,34 @@ function ActiveJobCard({
       <div className="px-5 pb-5 space-y-4">
         <p className="text-slate-800 font-medium leading-snug">{req.description}</p>
         <Meta req={req} />
+        {action === "enroute" && (
+          <button disabled={busy} onClick={() => onAction("enroute")} className="w-full min-h-14 rounded-2xl bg-sky-600 text-white text-lg font-semibold hover:bg-sky-700 flex items-center justify-center gap-2 disabled:opacity-50">
+            <Navigation className="w-5 h-5" /> On the way
+          </button>
+        )}
+        {action === "arrive" && (
+          <button disabled={busy} onClick={() => onAction("arrive")} className="w-full min-h-14 rounded-2xl bg-sky-600 text-white text-lg font-semibold hover:bg-sky-700 flex items-center justify-center gap-2 disabled:opacity-50">
+            <MapPin className="w-5 h-5" /> I've arrived
+          </button>
+        )}
+        {action === "otp" && (
+          <button type="button" onClick={onDetails} className="w-full min-h-14 rounded-2xl bg-amber-500 text-white text-lg font-semibold hover:bg-amber-600 flex items-center justify-center gap-2">
+            Enter customer OTP
+          </button>
+        )}
         {action === "start" && (
-          <button
-            disabled={busy}
-            onClick={onStart}
-            className="w-full min-h-14 rounded-2xl bg-sky-600 text-white text-lg font-semibold hover:bg-sky-700 flex items-center justify-center gap-2 disabled:opacity-50 shadow-sm"
-          >
+          <button disabled={busy} onClick={() => onAction("start")} className="w-full min-h-14 rounded-2xl bg-sky-600 text-white text-lg font-semibold hover:bg-sky-700 flex items-center justify-center gap-2 disabled:opacity-50">
             <Play className="w-5 h-5" /> Start work
           </button>
         )}
         {action === "complete" && (
-          <button
-            disabled={busy}
-            onClick={onComplete}
-            className="w-full min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-50 shadow-sm"
-          >
-            <Flag className="w-5 h-5" /> Complete job
+          <button disabled={busy} onClick={() => onAction("complete")} className="w-full min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-50">
+            <Flag className="w-5 h-5" /> Complete work
+          </button>
+        )}
+        {action === "collect" && (
+          <button disabled={busy} onClick={() => onAction("collect")} className="w-full min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-50">
+            <Wallet className="w-5 h-5" /> Confirm payment ₹{req.workerQuote || req.estimatedAmount || 0}
           </button>
         )}
         <div className="grid grid-cols-3 gap-2">
@@ -184,7 +217,7 @@ function ActiveJobCard({
             <MessageSquare className="w-4 h-4" /> Message
           </button>
           <button type="button" onClick={onDetails} className="min-h-12 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 flex items-center justify-center gap-1.5">
-            Details <ChevronRight className="w-4 h-4" />
+            Track <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -222,7 +255,7 @@ function OfferCard({
         {req.photos?.length ? (
           <div className="grid grid-cols-3 gap-2">
             {req.photos.slice(0, 3).map((src) => (
-              <img key={src} src={mediaUrl(src)} alt="" className="h-20 w-full rounded-xl object-cover" />
+              <img key={src} src={mediaUrl(src)} alt="" className="h-20 w-full rounded-xl object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.25"; }} />
             ))}
           </div>
         ) : null}

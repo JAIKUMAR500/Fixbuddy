@@ -8,7 +8,7 @@ import { Category } from "../models/Category.js";
 import { Complaint } from "../models/Complaint.js";
 import { Transaction } from "../models/Transaction.js";
 import { AuditLog } from "../models/AuditLog.js";
-import { getSettings } from "../models/PlatformSettings.js";
+import { getSettings, clearSettingsCache } from "../models/PlatformSettings.js";
 import { MailJob } from "../models/MailJob.js";
 import { sendMail, sendPendingMail } from "../services/mail.js";
 import { requireRole } from "../middleware/auth.js";
@@ -436,6 +436,7 @@ router.patch(
     const nextPass = String(req.body.smtpPass || "").trim();
     if (nextPass && nextPass !== "********") doc.smtpPass = nextPass;
     await doc.save();
+    clearSettingsCache();
     await logAudit(req, "Updated platform settings");
     if (doc.smtpPass) await sendPendingMail();
     const pendingMail = await MailJob.countDocuments({ status: { $in: ["pending", "failed"] } });

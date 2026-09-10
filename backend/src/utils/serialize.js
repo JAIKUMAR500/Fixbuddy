@@ -1,4 +1,5 @@
 import { licenseView } from "./license.js";
+import { km, etaMinutes, isOnline } from "./geo.js";
 
 export function publicUser(user) {
   if (!user) return null;
@@ -24,38 +25,40 @@ export function publicUser(user) {
     profileAsked: !!user.profileAsked,
     lat: user.lat ?? null,
     lng: user.lng ?? null,
+    lastSeenAt: user.lastSeenAt || null,
+    online: user.lastSeenAt ? Date.now() - new Date(user.lastSeenAt).getTime() < 120000 : false,
     status: user.status,
     walletBalance: user.walletBalance || 0,
     license: licenseView(user),
     createdAt: user.createdAt,
     provider: p
       ? {
-          businessName: p.businessName,
-          category: p.category,
-          services: p.services || [],
-          serviceAreas: p.serviceAreas || [],
-          hours: p.hours || { from: "08:00", to: "20:00" },
-          description: p.description,
-          experience: p.experience,
-          verified: !!p.verified,
-          available: p.available !== false,
-          startingPrice: p.startingPrice || 399,
-          responseTime: p.responseTime || "~30 mins",
-          ratingAvg: p.ratingAvg || 0,
-          ratingCount: p.ratingCount || 0,
-          completedJobs: p.completedJobs || 0,
-          location: p.location || "",
-          website: p.website || "",
-          photos: p.photos || [],
-          coverPhoto: p.coverPhoto || "",
-          gstCertificate: p.gstCertificate || "",
-          aadhaarCard: p.aadhaarCard || "",
-          panCard: p.panCard || "",
-          documents: p.documents || [],
-          lat: p.lat ?? null,
-          lng: p.lng ?? null,
-          onboarded: !!p.onboarded,
-        }
+        businessName: p.businessName,
+        category: p.category,
+        services: p.services || [],
+        serviceAreas: p.serviceAreas || [],
+        hours: p.hours || { from: "08:00", to: "20:00" },
+        description: p.description,
+        experience: p.experience,
+        verified: !!p.verified,
+        available: p.available !== false,
+        startingPrice: p.startingPrice || 399,
+        responseTime: p.responseTime || "~30 mins",
+        ratingAvg: p.ratingAvg || 0,
+        ratingCount: p.ratingCount || 0,
+        completedJobs: p.completedJobs || 0,
+        location: p.location || "",
+        website: p.website || "",
+        photos: p.photos || [],
+        coverPhoto: p.coverPhoto || "",
+        gstCertificate: p.gstCertificate || "",
+        aadhaarCard: p.aadhaarCard || "",
+        panCard: p.panCard || "",
+        documents: p.documents || [],
+        lat: p.lat ?? null,
+        lng: p.lng ?? null,
+        onboarded: !!p.onboarded,
+      }
       : null,
   };
 }
@@ -82,6 +85,10 @@ export function providerCard(user, extra = {}) {
     experience: p.experience || "",
     location: p.location || `${user.area || ""} ${user.city || ""}`.trim(),
     phone: user.phone || "",
+    lat: user.lat ?? p.lat ?? null,
+    lng: user.lng ?? p.lng ?? null,
+    lastSeenAt: user.lastSeenAt || null,
+    online: isOnline(user.lastSeenAt),
     services: p.services || [],
     photos: p.photos || [],
     coverPhoto: p.coverPhoto || "",
@@ -101,6 +108,8 @@ export function formatWhen(date, fallback = "") {
 
 export function presentRequest(doc, extras = {}) {
   const r = typeof doc.toObject === "function" ? doc.toObject() : doc;
+  const dist = km(r.lat, r.lng, r.workerLat, r.workerLng);
+  const revealOtp = extras.revealOtp && r.jobOtp && !r.otpVerified && r.status === "arrived";
   return {
     id: String(r._id),
     code: r.code,
@@ -116,6 +125,9 @@ export function presentRequest(doc, extras = {}) {
     landmark: r.landmark || "",
     lat: r.lat ?? null,
     lng: r.lng ?? null,
+    workerLat: r.workerLat ?? null,
+    workerLng: r.workerLng ?? null,
+    workerLocationAt: r.workerLocationAt || null,
     photos: r.photos || [],
     voiceNote: r.voiceNote || "",
     timing: r.timing,
@@ -131,6 +143,15 @@ export function presentRequest(doc, extras = {}) {
     timeline: r.timeline || [],
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    otpVerified: !!r.otpVerified,
+    jobOtp: revealOtp ? r.jobOtp : undefined,
+    paymentStatus: r.paymentStatus || "unpaid",
+    paymentCollectedAt: r.paymentCollectedAt || null,
+    customerCompleted: !!r.customerCompleted,
+    startedAt: r.startedAt || null,
+    completedAt: r.completedAt || null,
+    distanceKm: dist,
+    etaMinutes: etaMinutes(dist),
     customer: extras.customer || null,
     provider: extras.provider || null,
     matches: extras.matches || undefined,

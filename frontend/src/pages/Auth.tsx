@@ -30,7 +30,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     return "customer";
   });
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", description: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
   const [otp, setOtp] = useState("");
   const [shownOtp, setShownOtp] = useState("");
   const [error, setError] = useState("");
@@ -109,10 +109,29 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     e.preventDefault();
     setError("");
     setInfo("");
+    const email = form.email.trim();
+    if (!email) {
+      setError("Enter the email or mobile number for this account.");
+      return;
+    }
+    if (!form.password) {
+      setError("Enter your password.");
+      return;
+    }
+    if (mode === "signup") {
+      if (!form.name.trim()) {
+        setError(selectedType === "business" ? "Enter your business name." : "Enter your full name.");
+        return;
+      }
+      if (form.password.length < 6) {
+        setError("Password must be at least 6 characters.");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
-      if (mode === "login") await login(form.email, form.password, selectedType);
-      else await signup({ name: form.name, email: form.email, password: form.password, role: selectedType, description: form.description });
+      if (mode === "login") await login(email, form.password, selectedType);
+      else await signup({ name: form.name, email, password: form.password, role: selectedType });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to complete authentication");
     } finally {
@@ -151,7 +170,11 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
 
       <div className="flex flex-col justify-center px-6 py-10 sm:px-12">
         <div className="max-w-md w-full mx-auto">
-          <button onClick={() => (screen === "form" ? navigate("landing") : setScreen("form"))} className="text-sm text-slate-500 mb-6 hover:text-brand">← Back</button>
+          <div className="flex items-center gap-2 mb-8 lg:hidden">
+            <span className="w-9 h-9 rounded-xl bg-brand text-white font-black flex items-center justify-center">F</span>
+            <span className="text-xl font-bold font-display text-slate-900">FixBuddy</span>
+          </div>
+          <button type="button" onClick={() => (screen === "form" ? navigate("landing") : setScreen("form"))} className="text-sm text-slate-500 mb-6 hover:text-brand min-h-11">← Back</button>
           <h1 className="text-3xl font-bold text-slate-900 font-display mb-2">
             {screen === "form"
               ? mode === "login" ? "Welcome back!" : "Create your account"
@@ -163,7 +186,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
             {screen === "forgot-password" && "Choose a new password, then you can sign in."}
             {screen === "form" && (mode === "signup"
               ? "Name, email and password are enough. Extra details can wait."
-              : "Use the same email and password from signup. Select Customer, Worker, or Business to match that account.")}
+              : "Enter the same email and password from signup. Select Customer, Worker, or Business to match that account.")}
           </p>
 
           {screen === "form" && (
@@ -191,47 +214,40 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
               {mode === "signup" && (
                 <Input
                   label={selectedType === "business" ? "Business Name" : "Full Name"}
+                  required
+                  autoComplete="name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
-              )}
-              {mode === "signup" && (selectedType === "worker" || selectedType === "business") && (
-                <label className="block text-sm font-medium text-slate-700">
-                  {selectedType === "worker" ? "Describe your work" : "Business description"}
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    placeholder={selectedType === "worker" ? "What services do you provide?" : "What does your business do?"}
-                    rows={3}
-                    className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
-                  />
-                </label>
               )}
               <Input
                 label="Email or Mobile Number"
                 type="text"
                 inputMode="email"
                 autoComplete="username"
-                placeholder="The email you used to create the account"
+                required
+                placeholder="Email you used to create the account"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
               <div className="relative">
-                <Input label="Password" type={showPass ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-8 text-slate-400">
+                <Input label="Password" type={showPass ? "text" : "password"} required autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                <button type="button" aria-label={showPass ? "Hide password" : "Show password"} onClick={() => setShowPass(!showPass)} className="absolute right-3 top-8 text-slate-400 min-w-11 min-h-11 flex items-center justify-center">
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {mode === "login" && (
                 <div className="flex justify-between text-sm text-slate-500">
-                  <label className="flex items-center gap-2"><input type="checkbox" /> Remember me</label>
-                  <button type="button" className="text-brand" onClick={() => { setScreen("forgot-email"); setError(""); setInfo(""); }}>
+                  <label htmlFor="remember-me" className="flex items-center gap-2 min-h-11">
+                    <input id="remember-me" type="checkbox" className="rounded border-slate-300" /> Remember me
+                  </label>
+                  <button type="button" className="text-brand font-medium min-h-11" onClick={() => { setScreen("forgot-email"); setError(""); setInfo(""); }}>
                     Forgot password?
                   </button>
                 </div>
               )}
-              {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-              <Button type="submit" variant="primary" fullWidth size="lg" loading={submitting}>
+              {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+              <Button type="submit" variant="primary" fullWidth size="lg" loading={submitting} disabled={submitting}>
                 {mode === "login" ? "Login" : "Create Account"}
               </Button>
             </form>

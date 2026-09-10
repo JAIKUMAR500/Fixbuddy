@@ -11,7 +11,18 @@ export function dialHref(phone?: string | null) {
 }
 
 export function jobAllowsCall(status?: string | null) {
-  return ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(String(status || ""));
+  return [
+    "accepted",
+    "scheduled",
+    "on_the_way",
+    "arrived",
+    "otp_verified",
+    "in_progress",
+    "completed",
+    "payment_collected",
+    "customer_completed",
+    "reviewed",
+  ].includes(String(status || ""));
 }
 
 export function startCall(phone?: string | null) {

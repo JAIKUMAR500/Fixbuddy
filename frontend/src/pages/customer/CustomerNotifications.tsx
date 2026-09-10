@@ -3,7 +3,7 @@ import { CheckCircle, MessageSquare, Bell, Star } from "lucide-react";
 import { View } from "../../types";
 import { EmptyState, Skeleton } from "../../components/ui";
 import { NotifAPI, type AppNotif } from "../../api/client";
-import { useFetch } from "../../api/AppContext";
+import { useApp, useFetch } from "../../api/AppContext";
 
 const icons: Record<string, React.ReactNode> = {
   success: <CheckCircle className="w-4 h-4 text-emerald-600" />,
@@ -21,7 +21,8 @@ const iconBg: Record<string, string> = {
   request: "bg-sky-50",
 };
 
-export default function CustomerNotifications({ navigate: _navigate }: { navigate: (v: View) => void }) {
+export default function CustomerNotifications({ navigate }: { navigate: (v: View) => void }) {
+  const { setActiveRequestId, user } = useApp();
   const { data, loading, error, reload } = useFetch<{ unread: number; notifications: AppNotif[] }>("/notifications");
   const notifs = data?.notifications || [];
 
@@ -45,7 +46,30 @@ export default function CustomerNotifications({ navigate: _navigate }: { navigat
       )}
       <div className="space-y-2">
         {notifs.map((n) => (
-          <div key={n.id} className={`flex items-start gap-3 rounded-2xl p-4 border ${n.read ? "bg-white border-sky-100" : "bg-sky-50 border-sky-200"}`}>
+          <div
+            key={n.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              void NotifAPI.read([n.id]);
+              if (n.type === "message") {
+                navigate(user?.role === "customer" ? "customer-messages" : "business-messages");
+                return;
+              }
+              if (n.type === "review") {
+                navigate(user?.role === "customer" ? "customer-reviews" : "reviews");
+                return;
+              }
+              if (n.requestId) {
+                setActiveRequestId(n.requestId);
+                navigate(user?.role === "customer" ? "request-status" : "job-details");
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.currentTarget as HTMLElement).click();
+            }}
+            className={`flex items-start gap-3 rounded-2xl p-4 border cursor-pointer ${n.read ? "bg-white border-sky-100" : "bg-sky-50 border-sky-200"}`}
+          >
             <span className={`p-2 rounded-xl flex-shrink-0 ${iconBg[n.type] || "bg-sky-50"}`}>{icons[n.type] || icons.info}</span>
             <div className="flex-1 min-w-0">
               <p className={`text-sm ${n.read ? "text-slate-700" : "font-semibold text-slate-900"}`}>{n.text}</p>

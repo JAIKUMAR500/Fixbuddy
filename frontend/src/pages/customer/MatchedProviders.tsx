@@ -24,7 +24,7 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
   const matchedProviders = data?.request.matches || [];
   const request = data?.request;
   const invited = new Set(request?.invitedProviderIds || []);
-  const taken = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(request?.status || "");
+  const taken = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed", "payment_collected", "customer_completed", "reviewed"].includes(request?.status || "");
 
   const sorted = [...matchedProviders]
     .filter((p) => !verifiedOnly || p.verified)

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Calendar, ChevronRight, MapPin, Plus } from "lucide-react";
 import { View } from "../../types";
-import { Badge, Button, Card, EmptyState, Input, StatusBadge } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, Input, StatusBadge, SafeImg } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { AuthAPI, ProviderAPI, type JobRequest, type ReviewsPayload, type ServiceCategory } from "../../api/client";
 import { serviceLabel, servicePrice } from "../../api/display";
@@ -13,9 +13,9 @@ export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) 
   const { data, loading } = useFetch<{ requests: JobRequest[] }>("/requests");
   const [tab, setTab] = useState("All");
   const rows = (data?.requests || []).filter((r) => {
-    if (tab === "Upcoming") return ["accepted", "scheduled"].includes(r.status);
-    if (tab === "In Progress") return r.status === "in_progress";
-    if (tab === "Completed") return ["completed", "reviewed"].includes(r.status);
+    if (tab === "Upcoming") return ["accepted", "scheduled", "on_the_way"].includes(r.status);
+    if (tab === "In Progress") return ["arrived", "otp_verified", "in_progress"].includes(r.status);
+    if (tab === "Completed") return ["completed", "payment_collected", "customer_completed", "reviewed"].includes(r.status);
     if (tab === "Cancelled") return ["cancelled", "declined"].includes(r.status);
     return true;
   });
@@ -81,7 +81,7 @@ export function CustomerReviewsPage() {
           <Card key={r.id} className="hover-lift">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-12 h-12 rounded-2xl overflow-hidden bg-sky-50 border border-sky-100">
-                {r.avatar ? <img src={r.avatar} alt="" className="w-full h-full object-cover" /> : null}
+                {r.avatar ? <SafeImg src={r.avatar} alt="" className="w-full h-full object-cover" /> : null}
               </div>
               <div>
                 <p className="font-semibold">{r.customer}</p>

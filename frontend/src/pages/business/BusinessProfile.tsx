@@ -221,7 +221,7 @@ export default function BusinessProfile({ navigate }: { navigate: (v: View) => v
           <h3 className="font-display font-bold text-slate-900 mb-3 text-lg">Work photos</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {photos.map((url) => (
-              <img key={url} src={url} alt="" className="h-36 sm:h-44 w-full rounded-2xl object-cover" />
+              <img key={url} src={mediaUrl(url)} alt="" className="h-36 sm:h-44 w-full rounded-2xl object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.25"; }} />
             ))}
           </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Bell, Globe, Lock, MapPin, Shield, User, Loader2, Camera, LogOut } from "lucide-react";
-import { Button, Card, Input, Textarea } from "../../components/ui";
+import { Button, Card, Input, Textarea, SafeImg } from "../../components/ui";
 import { useApp } from "../../api/AppContext";
 import { AuthAPI, uploadImage } from "../../api/client";
 import { capturePlace } from "../../api/geo";
@@ -109,7 +109,7 @@ export default function AccountSettings() {
           <div className="relative">
             <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-sky-100 shadow-sm bg-sky-50">
               {user?.avatar ? (
-                <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+                <SafeImg src={user.avatar} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-sky-700">
                   {(user?.name || "U").slice(0, 1)}

@@ -3,6 +3,7 @@ import { User } from "../models/User.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser, providerCard } from "../utils/serialize.js";
 import { isProviderAccount } from "../utils/roles.js";
+import { km, isOnline } from "../utils/geo.js";
 
 const router = Router();
 
@@ -16,8 +17,36 @@ router.get(
     };
     if (req.query.city) filter.city = new RegExp(String(req.query.city), "i");
     if (req.query.category) filter["provider.category"] = new RegExp(String(req.query.category), "i");
-    const rows = await User.find(filter).sort({ "provider.ratingAvg": -1 }).limit(40).lean();
-    res.json({ providers: rows.map((u) => providerCard(u)) });
+    if (req.query.available === "true") filter["provider.available"] = true;
+    if (req.query.q) {
+      const q = new RegExp(String(req.query.q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ name: q }, { "provider.businessName": q }, { "provider.category": q }, { "provider.services": q }];
+    }
+    const lat = req.query.lat != null ? Number(req.query.lat) : null;
+    const lng = req.query.lng != null ? Number(req.query.lng) : null;
+    const maxKm = req.query.maxKm != null ? Number(req.query.maxKm) : 40;
+    const minRating = req.query.minRating != null ? Number(req.query.minRating) : 0;
+    const rows = await User.find(filter).sort({ "provider.ratingAvg": -1 }).limit(80).lean();
+    let providers = rows
+      .map((u) => {
+        const dist = km(lat, lng, u.lat ?? u.provider?.lat, u.lng ?? u.provider?.lng);
+        return providerCard(u, { distance: dist != null ? `${dist.toFixed(1)} km` : "nearby", score: dist == null ? 999 : dist });
+      })
+      .filter((p) => (p.rating || 0) >= minRating);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      providers = providers
+        .filter((p) => {
+          const n = Number.parseFloat(p.distance);
+          return !Number.isFinite(n) || n <= maxKm;
+        })
+        .sort((a, b) => (a.score || 0) - (b.score || 0));
+    }
+    res.json({
+      providers: providers.slice(0, 40).map((p) => ({
+        ...p,
+        online: p.online || isOnline(p.lastSeenAt),
+      })),
+    });
   })
 );
 

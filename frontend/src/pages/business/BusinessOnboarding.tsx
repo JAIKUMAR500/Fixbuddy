@@ -13,7 +13,9 @@ export default function BusinessOnboarding({ navigate }: { navigate: (v: View) =
   const [step, setStep] = useState(1);
   const [bizName, setBizName] = useState(p?.businessName || user?.name || "");
   const [category, setCategory] = useState(p?.category || "");
-  const [selectedServices, setSelectedServices] = useState<string[]>(p?.services || []);
+  const [selectedServices, setSelectedServices] = useState<string[]>(
+    (p?.services || []).map((s) => (typeof s === "string" ? s : s.name)).filter(Boolean)
+  );
   const [city, setCity] = useState(user?.city || "");
   const [areas, setAreas] = useState((p?.serviceAreas || []).join(", ") || user?.area || "");
   const [hours, setHours] = useState(p?.hours || { from: "08:00", to: "20:00" });

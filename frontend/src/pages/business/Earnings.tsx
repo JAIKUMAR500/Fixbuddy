@@ -10,7 +10,7 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
   const { data, loading } = useFetch<{ requests: JobRequest[] }>("/requests");
   const stats = statsData?.stats || {};
   const jobs = (data?.requests || []).filter((r) => ["completed", "reviewed", "in_progress", "accepted", "scheduled"].includes(r.status));
-  const paid = jobs.filter((r) => ["completed", "reviewed"].includes(r.status));
+  const paid = (data?.requests || []).filter((r) => r.paymentStatus === "collected" || ["payment_collected", "customer_completed", "reviewed"].includes(r.status));
   const pending = jobs.filter((r) => !["completed", "reviewed", "cancelled", "declined"].includes(r.status));
   const total = paid.reduce((s, r) => s + (r.estimatedAmount || 0), 0);
   const pendingAmt = pending.reduce((s, r) => s + (r.estimatedAmount || 0), 0);
@@ -36,7 +36,7 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Total Earned" value={`₹${(stats.earnings ?? total).toLocaleString("en-IN")}`} icon={<DollarSign className="w-5 h-5" />} color="sky" />
-        <StatCard label="Completed Jobs" value={String(stats.completed ?? paid.length)} icon={<TrendingUp className="w-5 h-5" />} color="emerald" />
+        <StatCard label="Today" value={`₹${(stats.todayEarnings ?? 0).toLocaleString("en-IN")}`} icon={<DollarSign className="w-5 h-5" />} color="emerald" />
         <StatCard label="Avg per Job" value={`₹${avg}`} icon={<DollarSign className="w-5 h-5" />} color="amber" />
         <StatCard label="Pending" value={`₹${pendingAmt.toLocaleString("en-IN")}`} icon={<DollarSign className="w-5 h-5" />} color="violet" />
       </div>

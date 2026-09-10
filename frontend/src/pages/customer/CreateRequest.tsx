@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ArrowLeft, ArrowRight, Image, MapPin, CheckCircle, Edit2, Loader2, X, IndianRupee } from "lucide-react";
 import { View, RequestData } from "../../types";
 import { Button, Input, Textarea, StepIndicator, Card } from "../../components/ui";
-import { CategoryAPI, RequestAPI, uploadImage } from "../../api/client";
+import { CategoryAPI, RequestAPI, mediaUrl, uploadImage } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isBusiness } from "../../api/roles";
 import { capturePlace } from "../../api/geo";
@@ -208,7 +208,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                   {photos.map((src) => (
                     <div key={src} className="relative">
                       <button type="button" onClick={() => setPreview(src)} className="block w-full">
-                        <img src={src} alt="" className="w-full h-36 sm:h-40 rounded-2xl object-cover border border-slate-200" />
+                        <img src={mediaUrl(src)} alt="" className="w-full h-36 sm:h-40 rounded-2xl object-cover border border-slate-200 bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.3"; }} />
                       </button>
                       <button
                         type="button"
@@ -252,7 +252,27 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                   {category === cat.name && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
                 </button>
               ))}
-              {!categories.length && (
+              <button
+                type="button"
+                onClick={() => setCategory("Other")}
+                className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${category === "Other" ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"}`}
+              >
+                <span className="w-12 h-12 rounded-2xl bg-sky-50 text-2xl flex items-center justify-center">➕</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-slate-900">Other</p>
+                  <p className="text-xs text-slate-500">Describe the service you need</p>
+                </div>
+                {category === "Other" && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
+              </button>
+              {category === "Other" && (
+                <textarea
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  placeholder="I need a technician to repair..."
+                  className="w-full min-h-24 rounded-2xl border border-sky-200 p-3 text-sm"
+                />
+              )}
+              {!categories.length && category !== "Other" && (
                 <Input label="Category" placeholder="Type a category" value={category} onChange={(e) => setCategory(e.target.value)} />
               )}
             </div>
@@ -356,7 +376,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
               {photos.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   {photos.map((src) => (
-                    <img key={src} src={src} alt="" className="h-28 w-full rounded-xl object-cover" />
+                    <img key={src} src={mediaUrl(src)} alt="" className="h-28 w-full rounded-xl object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.3"; }} />
                   ))}
                 </div>
               )}
@@ -367,7 +387,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
 
       {preview && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
-          <img src={preview} alt="" className="max-h-[90vh] max-w-full rounded-2xl object-contain" />
+          <img src={mediaUrl(preview)} alt="" className="max-h-[90vh] max-w-full rounded-2xl object-contain" />
         </div>
       )}
 

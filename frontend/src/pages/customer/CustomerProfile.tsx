@@ -101,8 +101,8 @@ export default function CustomerProfile({ navigate }: { navigate: (v: View) => v
           <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t border-sky-50">
             {[
               { label: "Requests", value: String(rows.length) },
-              { label: "Completed", value: String(rows.filter((r) => ["completed", "reviewed"].includes(r.status)).length) },
-              { label: "Active", value: String(rows.filter((r) => ["matching", "open", "requested", "accepted", "scheduled", "in_progress"].includes(r.status)).length) },
+              { label: "Completed", value: String(rows.filter((r) => ["completed", "reviewed", "payment_collected", "customer_completed"].includes(r.status)).length) },
+              { label: "Active", value: String(rows.filter((r) => ["matching", "open", "requested", "accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(r.status)).length) },
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <p className="font-bold text-xl text-sky-700" style={{ fontFamily: "Outfit, sans-serif" }}>{s.value}</p>

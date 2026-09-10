@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { User } from "../models/User.js";
 import { Otp } from "../models/Otp.js";
-import { signToken, auth } from "../middleware/auth.js";
+import { signToken, auth, forgetAuthUser, rememberAuthUser } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser } from "../utils/serialize.js";
 import { isProviderAccount, normalizeSignupRole } from "../utils/roles.js";
@@ -17,14 +17,14 @@ const router = Router();
 router.post(
   "/signup",
   asyncHandler(async (req, res) => {
-    const { name, email, phone, password, role, city, area, address, lat, lng, description } = req.body || {};
+    const { name, email, phone, password, role, city, area, address, lat, lng } = req.body || {};
     if (!name || !email || !password) throw httpError(400, "Name, email and password are required");
     const nextRole = normalizeSignupRole(role);
     if (!nextRole) throw httpError(403, "Admin accounts cannot be created from signup");
     const normalizedEmail = String(email).trim().toLowerCase();
     const exists = await User.findOne({ email: normalizedEmail, role: nextRole }).lean();
     if (exists) throw httpError(409, `An account with this email already exists for the ${nextRole} role`);
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 8);
     const user = await createUserWithCode({
       name,
       email: normalizedEmail,
@@ -36,9 +36,9 @@ router.post(
       lng: lng != null ? Number(lng) : null,
       passwordHash,
       role: nextRole,
-      license: buildLicense({ days: 7, plan: "trial" }),
+      license: buildLicense({ days: 30, plan: "trial" }),
       provider: isProviderAccount(nextRole)
-        ? { businessName: name, description: String(description || "").trim(), onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
+        ? { businessName: name, description: "", onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
         : undefined,
     });
     const token = signToken(user);
@@ -46,18 +46,28 @@ router.post(
   })
 );
 
-function phoneDigits(value) {
-  return String(value || "").replace(/\D/g, "");
+function cleanIdent(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "");
 }
 
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function phoneDigits(value) {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function roleMatches(userRole, requested) {
   if (!requested) return true;
   if (requested === "business") return userRole === "business" || userRole === "provider";
   return userRole === requested;
+}
+
+function roleLabel(role) {
+  if (role === "provider") return "Business";
+  if (role === "worker") return "Worker";
+  if (role === "admin") return "Admin";
+  if (role === "business") return "Business";
+  return "Customer";
 }
 
 async function usersMatchingIdent(ident) {
@@ -67,49 +77,53 @@ async function usersMatchingIdent(ident) {
   const digits = phoneDigits(ident);
   if (digits.length >= 10) {
     const last10 = digits.slice(-10);
-    const pattern = last10.split("").join("[\\s-]*");
-    return User.find({ phone: { $regex: `${pattern}$` } }).select("+passwordHash +googleId");
+    return User.find({ phone: { $regex: `${last10}$` } }).select("+passwordHash +googleId").limit(8);
   }
-  const code = ident.toUpperCase();
-  return User.find({
-    $or: [{ userCode: code }, { name: { $regex: `^${escapeRegex(ident)}$`, $options: "i" } }],
-  }).select("+passwordHash +googleId");
+  if (/^FB-[A-Z]{2,3}-\w+/i.test(ident)) {
+    return User.find({ userCode: ident.toUpperCase() }).select("+passwordHash +googleId").limit(2);
+  }
+  return [];
 }
 
 async function pickUserWithPassword(ident, password, role) {
   const candidates = await usersMatchingIdent(ident);
-  const matched = [];
-  for (const candidate of candidates) {
-    if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) {
-      matched.push(candidate);
-    }
-  }
-  if (!matched.length) {
-    if (candidates.length === 1 && candidates[0].googleId && !candidates[0].passwordHash) {
-      throw httpError(401, "This account uses Google. Click Continue with Google.");
-    }
-    throw httpError(401, "Invalid email or password. Use the same email and password from signup, not your display name.");
+  if (!candidates.length) {
+    throw httpError(401, "No account found. Check your email and the Customer, Worker, or Business tab.");
   }
   const requested = ["customer", "worker", "business", "provider", "admin"].includes(role) ? role : "";
-  if (requested) {
-    const preferred = matched.filter((u) => roleMatches(u.role, requested));
-    if (preferred.length === 1) return preferred[0];
-    if (preferred.length > 1) {
-      throw httpError(409, "Select the role used for this account before signing in");
+  const ordered = requested
+    ? [...candidates.filter((u) => roleMatches(u.role, requested)), ...candidates.filter((u) => !roleMatches(u.role, requested))]
+    : candidates;
+
+  let matched = null;
+  for (const candidate of ordered) {
+    if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) {
+      matched = candidate;
+      break;
     }
   }
-  if (matched.length === 1) return matched[0];
-  const roles = [...new Set(matched.map((u) => u.role))].join(", ");
-  throw httpError(409, `This email has more than one account (${roles}). Select that role, then login.`);
+  if (!matched) {
+    const onlyGoogle = candidates.length === 1 && candidates[0].googleId;
+    if (onlyGoogle) throw httpError(401, "This account uses Google. Click Continue with Google.");
+    if (requested && !candidates.some((u) => roleMatches(u.role, requested))) {
+      const roles = [...new Set(candidates.map((u) => roleLabel(u.role)))].join(" or ");
+      throw httpError(401, `This email is a ${roles} account. Select ${roles}, then login.`);
+    }
+    throw httpError(401, "Incorrect password. Use the password from signup.");
+  }
+  return matched;
 }
 
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    const ident = String(req.body.email || req.body.phone || req.body.username || "").trim();
+    const ident = cleanIdent(req.body.email || req.body.phone || req.body.username || "");
     const password = String(req.body.password || "");
     const role = String(req.body.role || "").trim().toLowerCase();
     if (!ident || !password) throw httpError(400, "Email / mobile and password are required");
+    if (!ident.includes("@") && phoneDigits(ident).length < 10 && !/^FB-/i.test(ident)) {
+      throw httpError(400, "Enter the email or mobile number from signup — not your name.");
+    }
 
     const user = await pickUserWithPassword(ident, password, role);
     if (user.status === "suspended") throw httpError(403, "Account suspended");
@@ -121,6 +135,7 @@ router.post(
     const token = signToken(user);
     const lean = user.toObject();
     delete lean.passwordHash;
+    rememberAuthUser(lean);
     res.json({ token, user: publicUser(lean) });
   })
 );
@@ -157,6 +172,8 @@ router.patch(
     };
     if (name != null && req.user.provider) set["provider.businessName"] = name;
     const user = await User.findByIdAndUpdate(req.userId, { $set: set }, { new: true }).lean();
+    forgetAuthUser(req.userId);
+    if (user) rememberAuthUser(user);
     res.json({ user: publicUser(user) });
   })
 );

@@ -1,4 +1,5 @@
 import React from "react";
+import { mediaUrl } from "../api/client";
 import {
   Baby,
   Building2,
@@ -65,7 +66,16 @@ export default function CategoryIcon({
 }) {
   const value = String(icon || "wrench").trim();
   if (value.startsWith("http") || value.startsWith("/") || value.startsWith("data:")) {
-    return <img src={value} alt="" className={`${className} object-contain`} />;
+    return (
+      <img
+        src={mediaUrl(value)}
+        alt=""
+        className={`${className} object-contain`}
+        onError={(e) => {
+          e.currentTarget.style.display = "none";
+        }}
+      />
+    );
   }
   const Icon = MAP[value.toLowerCase()];
   if (Icon) return <Icon className={className} />;

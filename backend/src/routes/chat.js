@@ -7,6 +7,7 @@ import { notify } from "../services/notify.js";
 import { ensureConversation } from "../services/chat.js";
 import { asyncHandler, httpError, timeAgo } from "../utils/asyncHandler.js";
 import { isFulfiller } from "../utils/roles.js";
+import { isOnline } from "../utils/geo.js";
 
 const router = Router();
 
@@ -48,7 +49,7 @@ router.get(
     const userIds = rows.map((c) => (asFulfiller ? c.customerId : c.providerId));
     const reqIds = rows.map((c) => c.requestId);
     const [users, requests] = await Promise.all([
-      User.find({ _id: { $in: userIds } }).select("name avatar phone provider").lean(),
+      User.find({ _id: { $in: userIds } }).select("name avatar phone provider lastSeenAt").lean(),
       Request.find({ _id: { $in: reqIds } }).select("category code status").lean(),
     ]);
     const umap = Object.fromEntries(users.map((u) => [String(u._id), u]));
@@ -69,6 +70,7 @@ router.get(
           unread: asFulfiller ? c.unreadProvider : c.unreadCustomer,
           service: job?.category || "",
           status: job?.status || "",
+          online: isOnline(other?.lastSeenAt),
         };
       }),
     });
@@ -82,7 +84,13 @@ router.get(
     if (!conv) throw httpError(404, "Conversation not found");
     const mine = String(conv.customerId) === req.userId || String(conv.providerId) === req.userId;
     if (!mine && req.user.role !== "admin") throw httpError(403, "Not allowed");
-    const msgs = await Message.find({ conversationId: conv._id }).sort({ createdAt: 1 }).limit(200).lean();
+      const msgs = await Message.find({
+        conversationId: conv._id,
+        deletedFor: { $ne: req.userId },
+      })
+        .sort({ createdAt: 1 })
+        .limit(200)
+        .lean();
     if (String(conv.customerId) === req.userId) conv.unreadCustomer = 0;
     if (String(conv.providerId) === req.userId) conv.unreadProvider = 0;
     await conv.save();
@@ -93,9 +101,11 @@ router.get(
         id: String(m._id),
         senderId: String(m.senderId),
         sender: String(m.senderId) === String(conv.customerId) ? "customer" : "provider",
-        text: m.text,
-        kind: m.kind || "text",
-        mediaUrl: m.mediaUrl || "",
+        text: m.deletedForEveryone ? "This message was deleted" : m.text,
+        kind: m.deletedForEveryone ? "text" : m.kind || "text",
+        mediaUrl: m.deletedForEveryone ? "" : m.mediaUrl || "",
+        deleted: !!m.deletedForEveryone,
+        durationSec: m.durationSec || 0,
         time: new Date(m.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
       })),
     });
@@ -112,6 +122,7 @@ router.post(
     const text = String(req.body.text || "").trim();
     const kind = ["image", "voice"].includes(req.body.kind) ? req.body.kind : "text";
     const mediaUrl = String(req.body.mediaUrl || "");
+    const durationSec = Number(req.body.durationSec || 0);
     if (!text && !mediaUrl) throw httpError(400, "Message text or media is required");
     const msg = await Message.create({
       conversationId: conv._id,
@@ -119,6 +130,7 @@ router.post(
       text: text || (kind === "voice" ? "Voice note" : kind === "image" ? "Photo" : ""),
       kind,
       mediaUrl,
+      durationSec,
     });
     conv.lastMessage = msg.text;
     conv.lastAt = new Date();
@@ -135,9 +147,39 @@ router.post(
         text: msg.text,
         kind: msg.kind,
         mediaUrl: msg.mediaUrl,
+        deleted: false,
+        durationSec: msg.durationSec || 0,
         time: new Date(msg.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
       },
     });
+  })
+);
+
+router.post(
+  "/:id/messages/:messageId/delete",
+  asyncHandler(async (req, res) => {
+    const conv = await Conversation.findById(req.params.id);
+    if (!conv) throw httpError(404, "Conversation not found");
+    const mine = String(conv.customerId) === req.userId || String(conv.providerId) === req.userId;
+    if (!mine) throw httpError(403, "Not allowed");
+    const msg = await Message.findOne({ _id: req.params.messageId, conversationId: conv._id });
+    if (!msg) throw httpError(404, "Message not found");
+    const scope = req.body.scope === "everyone" ? "everyone" : "me";
+    if (scope === "everyone") {
+      if (String(msg.senderId) !== req.userId) throw httpError(403, "You can only unsend your own messages");
+      msg.deletedForEveryone = true;
+      msg.text = "This message was deleted";
+      msg.mediaUrl = "";
+      await msg.save();
+      if (conv.lastMessage && conv.lastMessage !== "This message was deleted") {
+        conv.lastMessage = "This message was deleted";
+        await conv.save();
+      }
+    } else {
+      msg.deletedFor = [...new Set([...(msg.deletedFor || []).map(String), req.userId])];
+      await msg.save();
+    }
+    res.json({ ok: true, scope });
   })
 );
 

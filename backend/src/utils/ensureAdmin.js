@@ -4,11 +4,7 @@ import { getSettings } from "../models/PlatformSettings.js";
 import { env } from "../config/env.js";
 import { buildLicense, repairUserCodes, createUserWithCode } from "./license.js";
 
-const DEMO_EMAILS = ["customer@fixbuddy.com", "worker@fixbuddy.com", "provider@fixbuddy.com"];
-
 export async function ensureProductionAccounts() {
-  await User.deleteMany({ email: { $in: DEMO_EMAILS } });
-
   const settings = await getSettings();
   let settingsDirty = false;
   if (settings.supportEmail === "support@fixbuddy.com" || !settings.supportEmail) {

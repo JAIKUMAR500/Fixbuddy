@@ -2,21 +2,19 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { AppUser, AuthAPI, JobRequest, Provider as ApiProvider, api } from "./client";
 import { View } from "../types";
 import { roleHome } from "./roles";
-import { capturePlace } from "./geo";
+import { readGps } from "./geo";
 
 async function refreshLocation(current: AppUser, apply: (u: AppUser) => void) {
   if (current.lat != null && current.lng != null) return;
   try {
-    const place = await capturePlace();
+    const pos = await readGps();
     const { user: next } = await AuthAPI.updateMe({
-      lat: place.lat,
-      lng: place.lng,
-      city: place.city || current.city,
-      area: place.area || current.area,
-      address: place.address || current.address,
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
     });
     apply(next);
   } catch {
+    /* GPS is optional */
   }
 }
 
@@ -112,6 +110,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .then(({ user: u }) => {
         setUser(u);
         setView(roleHome(u));
+        void refreshLocation(u, setUser);
       })
       .catch(() => {
         localStorage.removeItem("fb_token");
@@ -120,6 +119,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!user || user.role !== "worker") return;
+    const ping = async () => {
+      try {
+        const pos = await readGps();
+        const { user: next } = await AuthAPI.updateMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setUser(next);
+      } catch {
+        /* GPS optional while idle */
+      }
+    };
+    const start = window.setTimeout(() => void ping(), 20000);
+    const t = window.setInterval(() => void ping(), 120000);
+    return () => {
+      window.clearTimeout(start);
+      window.clearInterval(t);
+    };
+  }, [user?.id, user?.role]);
 
   const value = useMemo(
     () => ({

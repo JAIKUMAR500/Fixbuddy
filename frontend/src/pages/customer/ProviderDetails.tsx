@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowLeft, MapPin, Clock, Phone, MessageSquare, Star, CheckCircle, ChevronRight } from "lucide-react";
 import { View } from "../../types";
-import { Button, RatingStars, VerifiedBadge, Card, Tabs, Avatar, EmptyState } from "../../components/ui";
+import { Button, RatingStars, VerifiedBadge, Card, Tabs, Avatar, EmptyState, SafeImg } from "../../components/ui";
 import { ProviderAPI, RequestAPI, ReviewAPI, type Provider, type ReviewsPayload } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isBusiness } from "../../api/roles";
@@ -23,7 +23,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
   const [alreadyRequested, setAlreadyRequested] = useState(false);
   const inbox = user?.role === "customer" ? "customer-messages" : "business-messages";
   const back = user?.role === "customer" || isBusiness(user?.role) ? "matched-providers" : "work-requests";
-  const taken = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(requestStatus);
+  const taken = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed", "payment_collected", "customer_completed", "reviewed"].includes(requestStatus);
   const callAllowed = taken;
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
     <div className="min-h-screen bg-sky-50">
       <div className="relative h-48 bg-sky-100 overflow-hidden">
         {p.coverPhoto || photos[0] ? (
-          <img src={p.coverPhoto || photos[0]} alt="cover" className="w-full h-full object-cover" />
+          <SafeImg src={p.coverPhoto || photos[0]} alt="cover" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-sky-200 to-sky-50" />
         )}
@@ -211,7 +211,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
             <div className="grid grid-cols-2 gap-3 animate-fade-in">
               {photos.map((url, i) => (
                 <div key={url} className={`rounded-2xl overflow-hidden ${i === 0 ? "col-span-2 h-48" : "h-32"}`}>
-                  <img src={url} alt={`work-${i}`} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+                  <SafeImg src={url} alt={`work-${i}`} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                 </div>
               ))}
             </div>

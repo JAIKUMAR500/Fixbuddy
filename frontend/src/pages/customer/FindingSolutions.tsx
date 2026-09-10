@@ -19,9 +19,9 @@ export default function FindingSolutions({ navigate }: { navigate: (v: View) => 
         setTimeout(() => {
           setStage(i);
           if (i === stages.length - 1) {
-            setTimeout(() => navigate("matched-providers"), 800);
+            setTimeout(() => navigate("matched-providers"), 350);
           }
-        }, i * 900)
+        }, i * 280)
       );
     });
     return () => timers.forEach(clearTimeout);

@@ -179,6 +179,19 @@ export const RequestAPI = {
     api<{ request: JobRequest }>(`/requests/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   quote: (id: string, amount: number) =>
     api<{ request: JobRequest }>(`/requests/${id}/quote`, { method: "POST", body: JSON.stringify({ amount }) }),
+  enroute: (id: string, body?: object) =>
+    api<{ request: JobRequest }>(`/requests/${id}/enroute`, { method: "POST", body: JSON.stringify(body || {}) }),
+  arrive: (id: string, body?: object) =>
+    api<{ request: JobRequest }>(`/requests/${id}/arrive`, { method: "POST", body: JSON.stringify(body || {}) }),
+  verifyOtp: (id: string, otp: string) =>
+    api<{ request: JobRequest }>(`/requests/${id}/verify-otp`, { method: "POST", body: JSON.stringify({ otp }) }),
+  pingLocation: (id: string, lat: number, lng: number) =>
+    api<{ request: JobRequest }>(`/requests/${id}/location`, { method: "PATCH", body: JSON.stringify({ lat, lng }) }),
+  collectPayment: (id: string) =>
+    api<{ request: JobRequest }>(`/requests/${id}/collect-payment`, { method: "POST" }),
+  customerComplete: (id: string) =>
+    api<{ request: JobRequest }>(`/requests/${id}/customer-complete`, { method: "POST" }),
+  active: () => api<{ request: JobRequest | null }>("/requests/active"),
 };
 
 export const ChatAPI = {
@@ -186,8 +199,13 @@ export const ChatAPI = {
   open: (requestId: string, providerId?: string) =>
     api<{ conversationId: string; requestId: string }>("/conversations/open", { method: "POST", body: JSON.stringify({ requestId, providerId }) }),
   messages: (id: string) => api<{ conversationId: string; requestId: string; messages: ChatMsg[] }>(`/conversations/${id}/messages`),
-  send: (id: string, body: { text?: string; kind?: string; mediaUrl?: string }) =>
+  send: (id: string, body: { text?: string; kind?: string; mediaUrl?: string; durationSec?: number }) =>
     api<{ message: ChatMsg }>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify(body) }),
+  deleteMessage: (conversationId: string, messageId: string, scope: "me" | "everyone") =>
+    api<{ ok: boolean }>(`/conversations/${conversationId}/messages/${messageId}/delete`, {
+      method: "POST",
+      body: JSON.stringify({ scope }),
+    }),
 };
 
 export const NotifAPI = {
@@ -281,6 +299,8 @@ export type AppUser = {
   profileAsked?: boolean;
   lat?: number | null;
   lng?: number | null;
+  lastSeenAt?: string | null;
+  online?: boolean;
   status: string;
   walletBalance?: number;
   license?: UserLicense;
@@ -331,6 +351,9 @@ export type JobRequest = {
   landmark?: string;
   lat?: number | null;
   lng?: number | null;
+  workerLat?: number | null;
+  workerLng?: number | null;
+  workerLocationAt?: string | null;
   photos?: string[];
   voiceNote?: string;
   timing: string;
@@ -345,6 +368,15 @@ export type JobRequest = {
   timeline: { status: string; note: string; at: string }[];
   createdAt?: string;
   updatedAt?: string;
+  otpVerified?: boolean;
+  jobOtp?: string;
+  paymentStatus?: "unpaid" | "collected";
+  paymentCollectedAt?: string | null;
+  customerCompleted?: boolean;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
   customer: { id: string; name: string; avatar?: string; phone?: string } | null;
   provider: Provider | null;
   matches?: Provider[];
@@ -377,6 +409,10 @@ export type Provider = {
   website?: string;
   score?: number;
   reason?: string;
+  lat?: number | null;
+  lng?: number | null;
+  lastSeenAt?: string | null;
+  online?: boolean;
 };
 
 export type ChatThread = {
@@ -390,6 +426,7 @@ export type ChatThread = {
   service: string;
   status: string;
   phone?: string;
+  online?: boolean;
 };
 
 export type ChatMsg = {
@@ -399,6 +436,8 @@ export type ChatMsg = {
   text: string;
   kind?: "text" | "image" | "voice";
   mediaUrl?: string;
+  deleted?: boolean;
+  durationSec?: number;
   time: string;
 };
 

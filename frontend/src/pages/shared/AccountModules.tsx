@@ -188,7 +188,7 @@ export function LiveAnalytics() {
         newUsers={rows.length}
         usersLabel="Jobs"
         usersHint="Jobs in this account"
-        active={(byStatus.accepted || 0) + (byStatus.scheduled || 0) + (byStatus.in_progress || 0)}
+        active={(byStatus.accepted || 0) + (byStatus.scheduled || 0) + (byStatus.on_the_way || 0) + (byStatus.arrived || 0) + (byStatus.otp_verified || 0) + (byStatus.in_progress || 0)}
         activeHint="Live work"
         cancelled={(byStatus.cancelled || 0) + (byStatus.declined || 0)}
         cancelledHint="Cancelled + declined"

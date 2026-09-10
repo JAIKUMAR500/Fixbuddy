@@ -70,6 +70,7 @@ const userSchema = new mongoose.Schema(
     profileAsked: { type: Boolean, default: false },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
+    lastSeenAt: { type: Date, default: null },
     status: { type: String, enum: ["active", "suspended"], default: "active", index: true },
     userCode: { type: String, unique: true, sparse: true, index: true },
     walletBalance: { type: Number, default: 0 },

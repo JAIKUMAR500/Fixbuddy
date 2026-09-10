@@ -96,6 +96,11 @@ export function StatusBadge({ status }: { status: string }) {
     declined: { label: "Declined", variant: "error" },
     in_progress: { label: "In Progress", variant: "primary" },
     "in-progress": { label: "In Progress", variant: "primary" },
+    on_the_way: { label: "On the way", variant: "info" },
+    arrived: { label: "Arrived", variant: "warning" },
+    otp_verified: { label: "OTP verified", variant: "info" },
+    payment_collected: { label: "Payment collected", variant: "success" },
+    customer_completed: { label: "Awaiting review", variant: "success" },
     pending: { label: "Pending", variant: "neutral" },
     new: { label: "New", variant: "info" },
     investigating: { label: "Investigating", variant: "warning" },
@@ -208,6 +213,30 @@ export function Avatar({ src, name, size = "md", className = "" }: AvatarProps) 
       onError={() => setFailed(true)}
     />
   );
+}
+
+export function SafeImg({
+  src,
+  alt = "",
+  className = "",
+}: {
+  src?: string | null;
+  alt?: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = React.useState(false);
+  const href = mediaUrl(src);
+  React.useEffect(() => {
+    setFailed(false);
+  }, [href]);
+  if (!href || failed) {
+    return (
+      <div className={`bg-slate-100 flex items-center justify-center text-slate-400 ${className}`} aria-hidden>
+        <span className="text-lg">📷</span>
+      </div>
+    );
+  }
+  return <img src={href} alt={alt} className={className} onError={() => setFailed(true)} />;
 }
 
 // ─── Rating ───────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { Otp } from "../models/Otp.js";
 import { MailJob } from "../models/MailJob.js";
 import { sendPendingMail } from "../services/mail.js";
 
-const TICK_MS = 20_000;
+const TICK_MS = 60_000;
 
 async function sweepExpiredOtps() {
   await Otp.deleteMany({ expiresAt: { $lte: new Date() } });
@@ -26,7 +26,7 @@ async function tick() {
 }
 
 export function startCron() {
-  console.log("OTP/mail cron started (every 20s)");
+  console.log("OTP/mail cron started (every 60s)");
   void tick();
   setInterval(() => void tick(), TICK_MS);
 }

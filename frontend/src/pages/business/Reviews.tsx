@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Star, MessageSquare } from "lucide-react";
 import { View } from "../../types";
-import { Card, Avatar, EmptyState } from "../../components/ui";
+import { Card, Avatar, EmptyState, SafeImg } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { ChatAPI, type ReviewsPayload } from "../../api/client";
 
@@ -79,7 +79,7 @@ export default function Reviews({ navigate }: { navigate: (v: View) => void }) {
           <Card key={r.id} padding="lg" className="hover-lift animate-rise" style={{ animationDelay: `${i * 40}ms` } as React.CSSProperties}>
             <div className="flex items-start gap-4 mb-4">
               <div className="w-14 h-14 rounded-2xl overflow-hidden bg-sky-50 border border-sky-100 flex-shrink-0">
-                {r.avatar ? <img src={r.avatar} alt="" className="w-full h-full object-cover" /> : <Avatar src="" name={r.customer} size="lg" className="rounded-2xl" />}
+                {r.avatar ? <SafeImg src={r.avatar} alt="" className="w-full h-full object-cover" /> : <Avatar src="" name={r.customer} size="lg" className="rounded-2xl" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center justify-between gap-2">

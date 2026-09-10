@@ -12,14 +12,14 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
   const rows = data?.requests || [];
 
   const filtered = rows.filter((request) => {
-    if (tab === "Active") return ["matching", "open", "requested", "accepted", "in_progress"].includes(request.status);
+    if (tab === "Active") return ["matching", "open", "requested", "accepted", "on_the_way", "arrived", "otp_verified", "in_progress", "payment_collected"].includes(request.status);
     if (tab === "Upcoming") return request.status === "scheduled";
-    if (tab === "Completed") return ["completed", "reviewed"].includes(request.status);
+    if (tab === "Completed") return ["completed", "reviewed", "customer_completed"].includes(request.status);
     if (tab === "Cancelled") return ["cancelled", "declined"].includes(request.status);
     return true;
   });
   const counts = {
-    active: rows.filter((r) => ["matching", "open", "requested", "accepted", "in_progress"].includes(r.status)).length,
+    active: rows.filter((r) => ["matching", "open", "requested", "accepted", "on_the_way", "arrived", "otp_verified", "in_progress", "payment_collected"].includes(r.status)).length,
     upcoming: rows.filter((r) => r.status === "scheduled").length,
     completed: rows.filter((r) => ["completed", "reviewed"].includes(r.status)).length,
     cancelled: rows.filter((r) => ["cancelled", "declined"].includes(r.status)).length,

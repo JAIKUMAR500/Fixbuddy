@@ -26,7 +26,7 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
   const incoming = list.filter((r) => ["open", "requested", "matching"].includes(r.status) && (!worker || !r.providerId));
   const active = list.filter(
     (r) =>
-      ["accepted", "scheduled", "in_progress"].includes(r.status) ||
+      ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(r.status) ||
       (worker && r.status === "requested" && r.providerId === user?.id)
   );
 
@@ -88,8 +88,8 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
       <Card padding="md" className="bg-brand border-brand">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-sky-200 text-xs font-medium">{worker ? "This Month's Earnings" : "Spend on posted jobs"}</p>
-            <p className="font-display text-3xl font-black text-white mt-0.5">₹{stats.earnings ?? stats.spend ?? 0}</p>
+            <p className="text-sky-200 text-xs font-medium">{worker ? "Today's Earnings" : "Spend on posted jobs"}</p>
+            <p className="font-display text-3xl font-black text-white mt-0.5">₹{worker ? (stats.todayEarnings ?? 0) : (stats.spend ?? stats.earnings ?? 0)}</p>
           </div>
           <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
             <DollarSign className="w-6 h-6 text-white" />

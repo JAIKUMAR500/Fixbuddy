@@ -23,6 +23,7 @@ import categoryRoutes from "./routes/categories.js";
 import uploadRoutes, { uploadDir } from "./routes/upload.js";
 import teamRoutes from "./routes/team.js";
 import { startCron } from "./jobs/cron.js";
+import { cacheGet, cacheSet } from "./utils/cache.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -32,6 +33,7 @@ const allowedOrigins = new Set(
   [
     "https://fixbuddy-ivory.vercel.app",
     "http://localhost:5173",
+    "http://localhost:5174",
     "http://localhost:8443",
     ...String(env.clientOrigin)
       .split(",")
@@ -62,33 +64,38 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/public/config", async (_req, res) => {
+  const cached = cacheGet("public:config");
+  if (cached) return res.json(cached);
   const { getSettings } = await import("./models/PlatformSettings.js");
   const settings = await getSettings();
-  res.json({
+  const payload = {
     supportEmail: settings.supportEmail || env.supportEmail,
     googleClientId: settings.googleClientId || env.googleClientId || "",
-  });
+  };
+  cacheSet("public:config", payload, 60_000);
+  res.json(payload);
 });
 
 app.get("/api/public/stats", async (_req, res) => {
-  const [customers, businesses, workers, categories, reviews] = await Promise.all([
+  const cached = cacheGet("public:stats");
+  if (cached) return res.json(cached);
+  const [customers, businesses, workers, categories, rating] = await Promise.all([
     User.countDocuments({ role: "customer", status: "active" }),
     User.countDocuments({ role: { $in: ["business", "provider"] }, status: "active" }),
     User.countDocuments({ role: "worker", status: "active" }),
     Category.countDocuments({ active: true }),
-    Review.find().select("rating").lean(),
+    Review.aggregate([{ $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } }]),
   ]);
-  const ratingAvg = reviews.length
-    ? Math.round((reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length) * 10) / 10
-    : 0;
-  res.json({
+  const payload = {
     customers,
     businesses,
     workers,
     categories,
-    ratingAvg,
-    ratingCount: reviews.length,
-  });
+    ratingAvg: rating[0] ? Math.round((rating[0].avg || 0) * 10) / 10 : 0,
+    ratingCount: rating[0]?.count || 0,
+  };
+  cacheSet("public:stats", payload, 60_000);
+  res.json(payload);
 });
 
 app.use("/api/auth", authRoutes);
@@ -108,14 +115,14 @@ app.use(errorHandler);
 
 connectDb()
   .then(async () => {
-    await User.syncIndexes();
-    await Conversation.syncIndexes();
     await ensureProductionAccounts();
     app.listen(env.port, () => {
       console.log(`Fixbuddy API on http://localhost:${env.port}`);
       console.log("MongoDB connected");
       startCron();
     });
+    User.syncIndexes().catch((err) => console.error("User index sync:", err.message));
+    Conversation.syncIndexes().catch((err) => console.error("Conversation index sync:", err.message));
   })
   .catch((err) => {
     console.error("MongoDB connection failed:", err.message);

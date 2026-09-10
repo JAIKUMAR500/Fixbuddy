@@ -10,18 +10,12 @@ const PREFIX = {
 
 export async function nextUserCode(role) {
   const prefix = PREFIX[role] || "FB-US";
-  const rows = await User.find({ userCode: { $regex: `^${prefix}-` } }).select("userCode").lean();
-  let max = 0;
-  for (const row of rows) {
-    const n = Number(String(row.userCode || "").split("-").pop());
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  for (let i = 1; i <= 200; i++) {
-    const code = `${prefix}-${String(max + i).padStart(4, "0")}`;
-    const taken = await User.exists({ userCode: code });
-    if (!taken) return code;
-  }
-  return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+  const last = await User.findOne({ userCode: { $regex: `^${prefix}-` } })
+    .sort({ userCode: -1 })
+    .select("userCode")
+    .lean();
+  const max = Number(String(last?.userCode || "").split("-").pop()) || 0;
+  return `${prefix}-${String(max + 1).padStart(4, "0")}`;
 }
 
 export async function createUserWithCode(data) {
@@ -115,13 +109,12 @@ export function hasValidLicense(user) {
   return view.status === "active" && view.remainingDays > 0;
 }
 
-/** Signup logs the user in without this check; logout then login must still work. */
+/** Signup logs the user in without this check; a valid password must still be able to sign in. */
 export async function ensureLoginLicense(user) {
   if (!user || user.role === "admin" || hasValidLicense(user)) return user;
   const view = licenseView(user);
   if (view.status === "revoked") return user;
-  if (view.status === "expired" && view.expiresAt) return user;
-  user.license = buildLicense({ days: 7, plan: "trial" });
+  user.license = buildLicense({ days: 30, plan: view.plan && view.plan !== "none" ? view.plan : "trial" });
   user.markModified?.("license");
   await user.save();
   return user;

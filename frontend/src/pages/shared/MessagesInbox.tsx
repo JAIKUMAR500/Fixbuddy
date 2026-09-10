@@ -21,7 +21,14 @@ export default function MessagesInbox({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recSec, setRecSec] = useState(0);
+  const [menuId, setMenuId] = useState<string | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recTimer = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +86,7 @@ export default function MessagesInbox({
     setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: message.text } : t)));
   };
 
-  const send = async (body: { text?: string; kind?: string; mediaUrl?: string }) => {
+  const send = async (body: { text?: string; kind?: string; mediaUrl?: string; durationSec?: number }) => {
     if (!activeId) return;
     setSending(true);
     setError("");
@@ -94,28 +101,67 @@ export default function MessagesInbox({
     }
   };
 
-  const sendVoice = async () => {
+  const startVoice = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = supportedRecordingMime();
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      const chunks: Blob[] = [];
-      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
+      recRef.current = rec;
+      streamRef.current = stream;
+      rec.start();
+      setRecording(true);
+      setRecSec(0);
+      recTimer.current = window.setInterval(() => setRecSec((s) => s + 1), 1000);
+    } catch {
+      setError("Microphone permission is required");
+    }
+  };
+
+  const cancelVoice = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    recRef.current?.stop();
+    recRef.current = null;
+    if (recTimer.current) window.clearInterval(recTimer.current);
+    setRecording(false);
+    setRecSec(0);
+  };
+
+  const sendVoice = async () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    const mime = rec.mimeType || supportedRecordingMime() || "audio/webm";
+    const seconds = recSec;
+    await new Promise<void>((resolve) => {
       rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        if (recTimer.current) window.clearInterval(recTimer.current);
+        setRecording(false);
         try {
-          const blobType = rec.mimeType || mime || "audio/webm";
-          const file = new File([new Blob(chunks, { type: blobType })], `voice.${recordingExtension(blobType)}`, { type: blobType });
+          const file = new File([new Blob(chunksRef.current, { type: mime })], `voice.${recordingExtension(mime)}`, { type: mime });
           const { url } = await uploadMedia(file);
-          await send({ kind: "voice", mediaUrl: url, text: "Voice note" });
+          await send({ kind: "voice", mediaUrl: url, text: "Voice note", durationSec: seconds });
         } catch (e) {
           setError(e instanceof Error ? e.message : "Voice upload failed");
         }
+        resolve();
       };
-      rec.start();
-      setTimeout(() => rec.stop(), 8000);
-    } catch {
-      setError("Microphone permission is required");
+      rec.stop();
+    });
+  };
+
+  const removeMessage = async (id: string, scope: "me" | "everyone") => {
+    if (!activeId) return;
+    try {
+      await ChatAPI.deleteMessage(activeId, id, scope);
+      if (scope === "me") setMessages((prev) => prev.filter((m) => m.id !== id));
+      else setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, deleted: true, text: "This message was deleted", mediaUrl: "" } : m)));
+      setMenuId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete");
     }
   };
 
@@ -142,7 +188,11 @@ export default function MessagesInbox({
               <Avatar src={m.avatar} name={m.name} size="md" />
               <div className="flex-1 text-left min-w-0">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
+                  <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">
+                    {m.name}
+                    <span className={`w-2 h-2 rounded-full ${m.online ? "bg-emerald-500" : "bg-slate-300"}`} title={m.online ? "Active" : "Inactive"} />
+                    <span className="text-[10px] font-medium text-slate-400">{m.online ? "Active" : "Inactive"}</span>
+                  </p>
                   <span className="text-xs text-slate-400">{m.time}</span>
                 </div>
                 <p className="text-xs text-slate-500 truncate">{m.lastMessage}</p>
@@ -161,7 +211,11 @@ export default function MessagesInbox({
             </button>
             <Avatar src={active.avatar} name={active.name} size="sm" />
             <div className="flex-1">
-              <p className="font-semibold text-slate-900 text-sm">{active.name}</p>
+              <p className="font-semibold text-slate-900 text-sm flex items-center gap-2">
+                {active.name}
+                <span className={`w-2 h-2 rounded-full ${active.online ? "bg-emerald-500" : "bg-slate-300"}`} />
+                <span className="text-[11px] font-medium text-slate-400">{active.online ? "Active" : "Inactive"}</span>
+              </p>
               <p className="text-xs text-slate-500">{active.service}</p>
             </div>
             {jobAllowsCall(active.status) && (
@@ -187,15 +241,33 @@ export default function MessagesInbox({
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
             {messages.map((cm) => (
               <div key={cm.id} className={`flex ${cm.sender === mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-xs px-4 py-2.5 rounded-2xl text-sm ${cm.sender === mine ? "bg-sky-600 text-white" : "bg-white border border-sky-100"}`}>
-                  {cm.kind === "image" && cm.mediaUrl ? (
-                    <img src={mediaUrl(cm.mediaUrl)} alt="" className="rounded-xl max-h-56 w-full object-cover mb-1" />
-                  ) : null}
-                  {cm.kind === "voice" && cm.mediaUrl ? (
-                    <audio controls src={mediaUrl(cm.mediaUrl)} className="w-52" />
-                  ) : null}
-                  {cm.kind !== "image" && cm.kind !== "voice" ? cm.text : null}
+                <div className={`max-w-xs px-4 py-2.5 rounded-2xl text-sm relative ${cm.sender === mine ? "bg-sky-600 text-white" : "bg-white border border-sky-100"}`}>
+                  {cm.deleted ? (
+                    <p className="italic opacity-80">This message was deleted</p>
+                  ) : (
+                    <>
+                      {cm.kind === "image" && cm.mediaUrl ? (
+                        <img src={mediaUrl(cm.mediaUrl)} alt="" className="rounded-xl max-h-56 w-full object-cover mb-1" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      ) : null}
+                      {cm.kind === "voice" && cm.mediaUrl ? (
+                        <div>
+                          <audio controls src={mediaUrl(cm.mediaUrl)} className="w-52" />
+                          {cm.durationSec ? <p className="text-[10px] mt-1 opacity-80">{cm.durationSec}s</p> : null}
+                        </div>
+                      ) : null}
+                      {cm.kind !== "image" && cm.kind !== "voice" ? cm.text : null}
+                    </>
+                  )}
                   <p className={`text-[10px] mt-1 ${cm.sender === mine ? "text-sky-100" : "text-slate-400"}`}>{cm.time}</p>
+                  {cm.sender === mine && !cm.deleted && (
+                    <button type="button" onClick={() => setMenuId(menuId === cm.id ? null : cm.id)} className="absolute -left-8 top-2 text-slate-400 text-xs">···</button>
+                  )}
+                  {menuId === cm.id && (
+                    <div className="absolute right-0 top-8 z-10 bg-white text-slate-800 rounded-xl shadow-lg border border-slate-100 text-xs overflow-hidden">
+                      <button type="button" className="block w-full px-3 py-2 hover:bg-slate-50 text-left" onClick={() => void removeMessage(cm.id, "me")}>Delete for me</button>
+                      <button type="button" className="block w-full px-3 py-2 hover:bg-slate-50 text-left" onClick={() => void removeMessage(cm.id, "everyone")}>Unsend</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -216,16 +288,27 @@ export default function MessagesInbox({
             <button type="button" onClick={() => photoRef.current?.click()} className="p-3 rounded-xl bg-sky-50 text-sky-700 min-w-11 min-h-11">
               <Image className="w-5 h-5" />
             </button>
-            <button type="button" onClick={() => void sendVoice()} className="p-3 rounded-xl bg-sky-50 text-sky-700 min-w-11 min-h-11">
-              <Mic className="w-5 h-5" />
-            </button>
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && text.trim() && void send({ text: text.trim() })}
-              placeholder="Type a message…"
-              className="flex-1 bg-sky-50 rounded-xl px-4 py-3 border border-sky-200 text-sm focus:outline-none min-h-12"
-            />
+            {recording ? (
+              <div className="flex-1 flex items-center gap-3 bg-red-50 rounded-xl px-4 py-2 min-h-12">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-semibold text-red-700">Recording… {String(Math.floor(recSec / 60)).padStart(2, "0")}:{String(recSec % 60).padStart(2, "0")}</span>
+                <button type="button" onClick={cancelVoice} className="ml-auto text-xs font-semibold text-slate-500">Cancel</button>
+                <button type="button" onClick={() => void sendVoice()} className="text-xs font-semibold text-sky-700">Send</button>
+              </div>
+            ) : (
+              <input
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && text.trim() && void send({ text: text.trim() })}
+                placeholder="Type a message…"
+                className="flex-1 bg-sky-50 rounded-xl px-4 py-3 border border-sky-200 text-sm focus:outline-none min-h-12"
+              />
+            )}
+            {!recording && (
+              <button type="button" onClick={() => void startVoice()} className="p-3 rounded-xl bg-sky-50 text-sky-700 min-w-11 min-h-11">
+                <Mic className="w-5 h-5" />
+              </button>
+            )}
             <button disabled={sending || !text.trim()} onClick={() => void send({ text: text.trim() })} className="p-3 rounded-xl bg-sky-600 text-white min-w-12 min-h-12 disabled:opacity-50">
               <Send className="w-5 h-5" />
             </button>

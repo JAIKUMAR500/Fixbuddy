@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { cacheGet, cacheSet, cacheDel } from "../utils/cache.js";
 
 const settingsSchema = new mongoose.Schema(
   {
@@ -20,7 +21,15 @@ const settingsSchema = new mongoose.Schema(
 export const PlatformSettings = mongoose.model("PlatformSettings", settingsSchema);
 
 export async function getSettings() {
+  const hit = cacheGet("settings:default");
+  if (hit) return hit;
   let doc = await PlatformSettings.findOne({ key: "default" });
   if (!doc) doc = await PlatformSettings.create({ key: "default" });
+  cacheSet("settings:default", doc, 60_000);
   return doc;
+}
+
+export function clearSettingsCache() {
+  cacheDel("settings:default");
+  cacheDel("public:config");
 }

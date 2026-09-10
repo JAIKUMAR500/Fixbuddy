@@ -9,10 +9,10 @@ const ALL_TABS = ["All", "Accepted", "Upcoming", "In Progress", "Completed", "Ca
 
 function matchesTab(status: string, tab: string) {
   if (tab === "All") return true;
-  if (tab === "Accepted") return status === "accepted";
+  if (tab === "Accepted") return ["accepted", "on_the_way"].includes(status);
   if (tab === "Upcoming") return status === "scheduled";
-  if (tab === "In Progress") return status === "in_progress";
-  if (tab === "Completed") return status === "completed" || status === "reviewed";
+  if (tab === "In Progress") return ["arrived", "otp_verified", "in_progress"].includes(status);
+  if (tab === "Completed") return ["completed", "payment_collected", "customer_completed", "reviewed"].includes(status);
   if (tab === "Cancelled") return status === "cancelled" || status === "declined";
   return true;
 }
