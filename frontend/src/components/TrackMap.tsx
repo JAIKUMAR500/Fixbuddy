@@ -39,6 +39,7 @@ export default function TrackMap({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
+  const layersRef = useRef<any>(null);
 
   useEffect(() => {
     const points: Point[] = [];
@@ -58,19 +59,19 @@ export default function TrackMap({
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: "&copy; OpenStreetMap",
         }).addTo(mapRef.current);
+        layersRef.current = L.layerGroup().addTo(mapRef.current);
       }
       const map = mapRef.current;
-      map.eachLayer((layer: any) => {
-        if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer);
-      });
+      const layers = layersRef.current;
+      layers.clearLayers();
       const markers = points.map((p) =>
-        L.circleMarker([p.lat, p.lng], { radius: 10, color: p.color, fillColor: p.color, fillOpacity: 0.9 }).bindPopup(p.label).addTo(map)
+        L.circleMarker([p.lat, p.lng], { radius: 10, color: p.color, fillColor: p.color, fillOpacity: 0.9 }).bindPopup(p.label).addTo(layers)
       );
       if (points.length === 2) {
         L.polyline(
           points.map((p) => [p.lat, p.lng]),
           { color: "#0ea5e9", weight: 4, opacity: 0.8 }
-        ).addTo(map);
+        ).addTo(layers);
       }
       const group = L.featureGroup(markers);
       map.fitBounds(group.getBounds().pad(0.35));
@@ -80,7 +81,7 @@ export default function TrackMap({
     };
   }, [customer?.lat, customer?.lng, worker?.lat, worker?.lng]);
 
-  if (!customer?.lat && !worker?.lat) {
+  if ((customer?.lat == null || customer?.lng == null) && (worker?.lat == null || worker?.lng == null)) {
     return (
       <div className={`rounded-2xl bg-slate-100 border border-slate-200 h-56 flex items-center justify-center text-sm text-slate-500 ${className}`}>
         Location will appear when GPS is available.

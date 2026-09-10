@@ -136,15 +136,38 @@ export default function AppShell({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [liveNotice, setLiveNotice] = React.useState("");
   const { t, lang, setLang } = useLang();
-  const { setUser } = useApp();
+  const { setUser, unreadNotifications } = useApp();
   const items = itemsFor(variant, t);
   const shown = displayName(user);
   const title =
     variant === "admin" ? "Super Admin" : variant === "worker" ? "Worker" : variant === "business" ? "Business" : "Customer";
 
+  React.useEffect(() => {
+    const onNotification = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string }>).detail;
+      if (!detail?.text) return;
+      setLiveNotice(detail.text);
+      const timer = window.setTimeout(() => setLiveNotice(""), 6000);
+      return () => window.clearTimeout(timer);
+    };
+    window.addEventListener("fixbuddy:notification", onNotification);
+    return () => window.removeEventListener("fixbuddy:notification", onNotification);
+  }, []);
+
   return (
     <div className="min-h-screen bg-canvas flex">
+      {liveNotice && (
+        <button
+          type="button"
+          onClick={() => navigate(notifView(variant))}
+          className="fixed right-4 top-20 z-[60] max-w-sm rounded-2xl border border-sky-200 bg-white px-4 py-3 text-left shadow-xl"
+        >
+          <span className="block text-[11px] font-bold uppercase tracking-wider text-sky-600">FixBuddy activity</span>
+          <span className="mt-1 block text-sm font-semibold text-slate-800">{liveNotice}</span>
+        </button>
+      )}
       <aside className="hidden lg:flex w-64 bg-navy text-slate-300 flex-col h-screen sticky top-0">
         <div className="h-16 px-5 flex items-center gap-2 border-b border-white/10">
           <RoleGlyph role={user?.role} className="w-5 h-5" boxClassName="w-9 h-9 bg-white text-brand" />
@@ -264,9 +287,9 @@ export default function AppShell({
             >
               <LogOut className="w-6 h-6 text-slate-600" />
             </button>
-            <button onClick={() => navigate(notifView(variant))} className="relative p-3 rounded-xl hover:bg-brand-soft min-w-11 min-h-11">
+            <button onClick={() => navigate(notifView(variant))} className="relative p-3 rounded-xl hover:bg-brand-soft min-w-11 min-h-11" aria-label={`${unreadNotifications} unread notifications`}>
               <Bell className="w-6 h-6 text-slate-600" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-brand rounded-full" />
+              {unreadNotifications > 0 && <span className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center">{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}
             </button>
             <button
               onClick={() => navigate(variant === "customer" ? "customer-profile" : variant === "admin" ? "admin-settings" : "business-profile")}

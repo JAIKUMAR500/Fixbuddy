@@ -91,12 +91,14 @@ async function pickUserWithPassword(ident, password, role) {
     throw httpError(401, "No account found. Check your email and the Customer, Worker, or Business tab.");
   }
   const requested = ["customer", "worker", "business", "provider", "admin"].includes(role) ? role : "";
-  const ordered = requested
-    ? [...candidates.filter((u) => roleMatches(u.role, requested)), ...candidates.filter((u) => !roleMatches(u.role, requested))]
-    : candidates;
+  const roleCandidates = requested ? candidates.filter((u) => roleMatches(u.role, requested)) : candidates;
+  if (requested && !roleCandidates.length) {
+    const roles = [...new Set(candidates.map((u) => roleLabel(u.role)))].join(" or ");
+    throw httpError(401, `This email is a ${roles} account. Select ${roles}, then login.`);
+  }
 
   let matched = null;
-  for (const candidate of ordered) {
+  for (const candidate of roleCandidates) {
     if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) {
       matched = candidate;
       break;
@@ -105,10 +107,6 @@ async function pickUserWithPassword(ident, password, role) {
   if (!matched) {
     const onlyGoogle = candidates.length === 1 && candidates[0].googleId;
     if (onlyGoogle) throw httpError(401, "This account uses Google. Click Continue with Google.");
-    if (requested && !candidates.some((u) => roleMatches(u.role, requested))) {
-      const roles = [...new Set(candidates.map((u) => roleLabel(u.role)))].join(" or ");
-      throw httpError(401, `This email is a ${roles} account. Select ${roles}, then login.`);
-    }
     throw httpError(401, "Incorrect password. Use the password from signup.");
   }
   return matched;
@@ -231,14 +229,16 @@ router.post(
       await job.save();
       console.log("OTP email failed:", job.lastError);
     }
-    if (!mailed) console.log(`FixBuddy password OTP queued for ${email}: ${code}`);
+    if (!mailed && process.env.NODE_ENV === "production") {
+      res.status(503).json({ ok: false, queued: true, message: "We could not deliver the OTP yet. Please try again shortly." });
+      return;
+    }
     res.json({
       ok: true,
       queued: !mailed,
       message: mailed
         ? `OTP sent to ${email}`
-        : "OTP generated. Mail will send when Gmail SMTP is added in Admin → Settings. Code is shown below.",
-      otp: mailed ? undefined : code,
+        : "OTP queued for delivery. Check your email shortly.",
     });
   })
 );
@@ -280,7 +280,14 @@ router.post(
     ]);
     const email = payload.email;
     const googleRole = ["customer", "worker", "business", "provider"].includes(req.body.role) ? req.body.role : null;
-    let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }], ...(googleRole ? { role: googleRole } : {}) });
+    const roleFilter = googleRole === "business" ? { role: { $in: ["business", "provider"] } } : googleRole ? { role: googleRole } : {};
+    let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }], ...roleFilter });
+    if (!user && googleRole) {
+      const sameEmail = await User.findOne({ email }).select("role").lean();
+      if (sameEmail) {
+        throw httpError(401, `This Google account is registered as ${roleLabel(sameEmail.role)}. Select ${roleLabel(sameEmail.role)}, then continue with Google.`);
+      }
+    }
     if (!user) {
       const nextRole = normalizeSignupRole(req.body.role) || "customer";
       user = await createUserWithCode({

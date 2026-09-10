@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { AppUser, AuthAPI, JobRequest, Provider as ApiProvider, api } from "./client";
+import { ApiError, AppUser, AuthAPI, NotifAPI, Provider as ApiProvider, api, type AppNotif, type JobRequest } from "./client";
 import { View } from "../types";
 import { roleHome } from "./roles";
 import { readGps } from "./geo";
@@ -35,6 +35,7 @@ type Ctx = {
   logout: () => void;
   setUser: (u: AppUser | null) => void;
   routeAfterAuth: (u: AppUser) => void;
+  unreadNotifications: number;
 };
 
 const AppContext = createContext<Ctx | null>(null);
@@ -47,6 +48,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [requestData, setRequestData] = useState<Ctx["requestData"]>({});
   const [selectedProvider, setSelectedProvider] = useState<ApiProvider | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const navigate = useCallback((v: View) => {
     setView(v);
@@ -97,6 +99,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setActiveRequestId(null);
     setSelectedProvider(null);
+    setUnreadNotifications(0);
     navigate("landing");
   }, [navigate]);
 
@@ -112,13 +115,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setView(roleHome(u));
         void refreshLocation(u, setUser);
       })
-      .catch(() => {
+      .catch((error) => {
+        if (error instanceof ApiError && error.status !== 401) {
+          setUser(null);
+          setView("login");
+          return;
+        }
         localStorage.removeItem("fb_token");
         setUser(null);
         setView("login");
       })
       .finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let initialized = false;
+    let seen = new Set<string>();
+    const announce = (notification: AppNotif) => {
+      window.dispatchEvent(new CustomEvent("fixbuddy:notification", { detail: notification }));
+      try {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          const audio = new AudioContextClass();
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          oscillator.frequency.value = 880;
+          gain.gain.setValueAtTime(0.0001, audio.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.08, audio.currentTime + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.18);
+          oscillator.connect(gain).connect(audio.destination);
+          oscillator.start();
+          oscillator.stop(audio.currentTime + 0.2);
+          window.setTimeout(() => void audio.close(), 300);
+        }
+      } catch {
+        /* Browsers may block audio until the user interacts. */
+      }
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("FixBuddy update", { body: notification.text });
+      }
+    };
+    const poll = async () => {
+      try {
+        const result = await NotifAPI.list();
+        setUnreadNotifications(result.unread);
+        const current = new Set(result.notifications.map((item) => item.id));
+        if (initialized) {
+          result.notifications.filter((item) => !seen.has(item.id) && !item.read).slice(0, 3).forEach(announce);
+        }
+        seen = current;
+        initialized = true;
+      } catch {
+        /* Notification polling is best effort. */
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 8000);
+    return () => window.clearInterval(timer);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user || user.role !== "worker") return;
@@ -157,8 +212,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logout,
       setUser,
       routeAfterAuth,
+      unreadNotifications,
     }),
-    [user, ready, view, navigate, requestData, selectedProvider, activeRequestId, login, signup, googleLogin, logout, routeAfterAuth]
+    [user, ready, view, navigate, requestData, selectedProvider, activeRequestId, login, signup, googleLogin, logout, routeAfterAuth, unreadNotifications]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

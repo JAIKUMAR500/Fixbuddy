@@ -322,7 +322,7 @@ router.post(
     await ensureConversation(taken);
     await notify(taken.customerId, {
       type: "success",
-      text: `${req.user.provider?.businessName || req.user.name} accepted your job`,
+      text: `${req.user.provider?.businessName || req.user.name} accepted your job and is getting ready to come`,
       requestId: taken._id,
     });
     const others = (taken.invitedProviderIds || []).map(String).filter((id) => id !== req.userId);
@@ -401,6 +401,9 @@ router.post(
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
     if (!["on_the_way", "accepted", "scheduled"].includes(doc.status)) throw httpError(400, "Mark on the way before arriving.");
     doc.jobOtp = String(crypto.randomInt(1000, 10000));
+    doc.jobOtpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    doc.jobOtpAttempts = 0;
+    doc.jobOtpLockedUntil = null;
     doc.otpVerified = false;
     if (req.body.lat != null && req.body.lng != null) {
       doc.workerLat = Number(req.body.lat);
@@ -426,10 +429,26 @@ router.post(
     const code = String(req.body.otp || "").replace(/\D/g, "");
     if (code.length !== 4) throw httpError(400, "Enter the 4-digit OTP from the customer.");
     if (!doc.jobOtp || doc.otpVerified) throw httpError(400, "OTP is no longer valid.");
-    if (code !== doc.jobOtp) throw httpError(400, "Invalid OTP. Ask the customer for the code on their screen.");
+    if (doc.jobOtpExpiresAt && doc.jobOtpExpiresAt.getTime() <= Date.now()) {
+      doc.jobOtp = "";
+      await doc.save();
+      throw httpError(400, "OTP expired. Ask the customer to request a new arrival verification.");
+    }
+    if (doc.jobOtpLockedUntil && doc.jobOtpLockedUntil.getTime() > Date.now()) {
+      throw httpError(429, "Too many incorrect OTP attempts. Try again later.");
+    }
+    if (code !== doc.jobOtp) {
+      doc.jobOtpAttempts += 1;
+      if (doc.jobOtpAttempts >= 5) doc.jobOtpLockedUntil = new Date(Date.now() + 10 * 60 * 1000);
+      await doc.save();
+      throw httpError(400, "Invalid OTP. Ask the customer for the code on their screen.");
+    }
     doc.otpVerified = true;
     doc.otpVerifiedAt = new Date();
     doc.jobOtp = "";
+    doc.jobOtpExpiresAt = null;
+    doc.jobOtpAttempts = 0;
+    doc.jobOtpLockedUntil = null;
     pushTimeline(doc, "otp_verified", "Arrival verified with OTP");
     await doc.save();
     await notify(doc.customerId, { type: "success", text: "OTP verified. Work can start.", requestId: doc._id });

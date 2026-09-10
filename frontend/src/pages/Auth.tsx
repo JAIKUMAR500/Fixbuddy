@@ -32,7 +32,6 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
   });
   const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
   const [otp, setOtp] = useState("");
-  const [shownOtp, setShownOtp] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -54,15 +53,10 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
   const sendOtp = async () => {
     setError("");
     setInfo("");
-    setShownOtp("");
     setSubmitting(true);
     try {
       const d = await AuthAPI.forgot(form.email, selectedType);
       setInfo(d.message);
-      if (d.otp) {
-        setShownOtp(d.otp);
-        setOtp(d.otp);
-      }
       setScreen("forgot-otp");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send OTP");
@@ -186,27 +180,31 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
             {screen === "forgot-password" && "Choose a new password, then you can sign in."}
             {screen === "form" && (mode === "signup"
               ? "Name, email and password are enough. Extra details can wait."
-              : "Enter the same email and password from signup. Select Customer, Worker, or Business to match that account.")}
+              : "Choose the account type you used at signup, then enter the same email and password.")}
           </p>
 
           {screen === "form" && (
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              {ROLES.map((type) => (
-                <button
-                  key={type.id}
-                  type="button"
-                  onClick={() => setSelectedType(type.id)}
-                  className={`py-3 px-1 rounded-2xl text-sm font-semibold border transition-all ${selectedType === type.id ? "bg-brand text-white border-brand shadow-md" : "bg-canvas text-slate-600 border-transparent"}`}
-                >
-                  <RoleGlyph
-                    role={type.id}
-                    className="w-7 h-7"
-                    boxClassName={`w-12 h-12 mx-auto mb-1 ${selectedType === type.id ? "bg-white text-brand" : ""}`}
-                  />
-                  {type.label}
-                </button>
-              ))}
-            </div>
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Sign in as</p>
+              <div className="grid grid-cols-3 gap-2 mb-6">
+                {ROLES.map((type) => (
+                  <button
+                    key={type.id}
+                    type="button"
+                    onClick={() => setSelectedType(type.id)}
+                    aria-pressed={selectedType === type.id}
+                    className={`py-3 px-1 rounded-2xl text-sm font-semibold border transition-all ${selectedType === type.id ? "bg-brand text-white border-brand shadow-md" : "bg-canvas text-slate-600 border-transparent hover:border-brand/30"}`}
+                  >
+                    <RoleGlyph
+                      role={type.id}
+                      className="w-7 h-7"
+                      boxClassName={`w-12 h-12 mx-auto mb-1 ${selectedType === type.id ? "bg-white text-brand" : ""}`}
+                    />
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
           {screen === "form" && (
@@ -237,10 +235,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
                 </button>
               </div>
               {mode === "login" && (
-                <div className="flex justify-between text-sm text-slate-500">
-                  <label htmlFor="remember-me" className="flex items-center gap-2 min-h-11">
-                    <input id="remember-me" type="checkbox" className="rounded border-slate-300" /> Remember me
-                  </label>
+                <div className="flex justify-end text-sm text-slate-500">
                   <button type="button" className="text-brand font-medium min-h-11" onClick={() => { setScreen("forgot-email"); setError(""); setInfo(""); }}>
                     Forgot password?
                   </button>
@@ -265,17 +260,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
           {screen === "forgot-otp" && (
             <div className="space-y-4">
               {info && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{info}</p>}
-              {shownOtp && (
-                <div className="rounded-2xl border border-brand/20 bg-brand-soft p-4 text-center">
-                  <p className="text-xs uppercase tracking-wide text-brand font-semibold">Your OTP</p>
-                  <p className="text-3xl font-black font-display tracking-[0.35em] text-navy mt-1">{shownOtp}</p>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {shownOtp
-                      ? "Mail is queued. Cron sends it when Gmail SMTP is saved. Use this code now."
-                      : "Check your Gmail inbox (and spam) for the 6-digit code."}
-                  </p>
-                </div>
-              )}
+              <p className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-sky-800">Check your email inbox and spam folder for the 6-digit code. For security, the code is never shown in this app.</p>
               <Input label="6-digit OTP" inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))} />
               {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
               <Button fullWidth size="lg" disabled={otp.length !== 6} onClick={() => { setForm((f) => ({ ...f, password: "", confirm: "" })); setScreen("forgot-password"); }}>

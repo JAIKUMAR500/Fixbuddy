@@ -177,7 +177,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
               <JobProgress status={request.status} />
             </Card>
 
-            {(request.lat || request.workerLat) && (
+            {(request.lat != null || request.workerLat != null) && (
               <Card padding="none" className="overflow-hidden">
                 <TrackMap
                   customer={{ lat: request.lat, lng: request.lng }}

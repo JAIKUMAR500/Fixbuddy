@@ -45,6 +45,8 @@ export async function auth(req, res, next) {
     next();
   } catch (err) {
     if (err.status) return next(err);
+    if (err?.name === "TokenExpiredError") return next(httpError(401, "Session expired. Please sign in again."));
+    if (err?.name === "JsonWebTokenError") return next(httpError(401, "Session is no longer valid. Please sign in again."));
     next(httpError(401, "Invalid or expired session"));
   }
 }

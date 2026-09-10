@@ -39,7 +39,12 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
           return {};
         }
       };
-      if (kind === "accept") await RequestAPI.accept(id);
+      if (kind === "accept") {
+        const { request } = await RequestAPI.accept(id);
+        setActiveRequestId(request.id);
+        navigate("job-details");
+        return;
+      }
       else if (kind === "decline") await RequestAPI.decline(id);
       else if (kind === "enroute") await RequestAPI.enroute(id, await loc());
       else if (kind === "arrive") await RequestAPI.arrive(id, await loc());

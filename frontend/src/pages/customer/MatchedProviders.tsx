@@ -51,7 +51,7 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
     setActionError("");
     try {
       await RequestAPI.assign(activeRequestId, providerId);
-      reload();
+      navigate("request-status");
     } catch (requestError) {
       setActionError(requestError instanceof Error ? requestError.message : "Unable to request this provider");
     } finally {
