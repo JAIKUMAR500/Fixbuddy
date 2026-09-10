@@ -63,6 +63,7 @@ const requestSchema = new mongoose.Schema(
     },
     timeline: { type: [timelineSchema], default: [] },
     matches: { type: [matchSchema], default: [] },
+    invitedProviderIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true }

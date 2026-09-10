@@ -321,6 +321,7 @@ export type JobRequest = {
   code: string;
   customerId: string | null;
   providerId: string | null;
+  invitedProviderIds?: string[];
   postedByRole?: string;
   description: string;
   category: string;

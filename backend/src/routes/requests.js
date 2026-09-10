@@ -42,10 +42,15 @@ async function loadPeople(r) {
   };
 }
 
+function isInvited(doc, userId) {
+  return (doc.invitedProviderIds || []).some((id) => String(id) === String(userId));
+}
+
 function canViewOpenJob(req, doc) {
   if (isAdmin(req.user.role)) return true;
   if (String(doc.customerId) === req.userId) return true;
   if (doc.providerId && String(doc.providerId) === req.userId) return true;
+  if (isInvited(doc, req.userId)) return true;
   if (isSeeker(req.user.role) && ["matching", "open", "requested"].includes(doc.status)) return true;
   return false;
 }
@@ -123,15 +128,23 @@ router.get(
       const inbox = req.query.inbox === "true";
       if (inbox) {
         const cat = req.user.provider?.category;
+        const openJobs = {
+          status: { $in: ["open", "requested", "matching"] },
+          declinedBy: { $ne: req.userId },
+          $and: [
+            {
+              $or: cat
+                ? [{ category: cat }, { "matches.providerId": req.userId }, { invitedProviderIds: req.userId }, { publicPost: true }]
+                : [{ "matches.providerId": req.userId }, { invitedProviderIds: req.userId }, { publicPost: true }],
+            },
+            {
+              $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: req.userId }],
+            },
+          ],
+        };
         filter.$or = [
-          { providerId: req.userId },
-          {
-            status: { $in: ["open", "requested"] },
-            declinedBy: { $ne: req.userId },
-            $or: cat
-              ? [{ category: cat }, { "matches.providerId": req.userId }, { publicPost: true }]
-              : [{ "matches.providerId": req.userId }, { publicPost: true }],
-          },
+          { providerId: req.userId, status: { $in: ["requested", "accepted", "scheduled", "in_progress"] } },
+          openJobs,
         ];
       } else {
         filter.providerId = req.userId;
@@ -195,19 +208,41 @@ router.post(
     const doc = await Request.findById(req.params.id);
     if (!doc) throw httpError(404, "Request not found");
     if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, "Not your job");
+    if (["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(doc.status)) {
+      throw httpError(409, "A worker already accepted this job.");
+    }
+    if (["cancelled", "declined"].includes(doc.status)) throw httpError(400, "This job is closed");
     const providerId = req.body.providerId;
     if (!providerId) throw httpError(400, "providerId is required");
     const worker = await User.findOne({ _id: providerId, role: "worker" }).lean();
-    if (!worker) throw httpError(400, "You can only assign a worker");
-    doc.providerId = providerId;
-    pushTimeline(doc, "requested", "Creator requested this worker");
+    if (!worker) throw httpError(400, "You can only request a worker");
+    const already = new Set((doc.invitedProviderIds || []).map(String));
+    if (doc.providerId) already.add(String(doc.providerId));
+    const firstTime = !already.has(String(providerId));
+    already.add(String(providerId));
+    doc.invitedProviderIds = [...already];
+    doc.providerId = null;
+    const workerName = worker.provider?.businessName || worker.name;
+    if (firstTime) {
+      if (doc.status === "requested") {
+        doc.timeline.push({
+          status: "requested",
+          note: `Also requested ${workerName}. First worker to accept gets the job.`,
+          at: new Date(),
+        });
+      } else {
+        pushTimeline(doc, "requested", `Requested ${workerName}. First worker to accept gets the job.`);
+      }
+    }
+    doc.status = "requested";
     await doc.save();
-    await ensureConversation(doc);
-    await notify(providerId, {
-      type: "request",
-      text: `${req.user.name} requested you for a job`,
-      requestId: doc._id,
-    });
+    if (firstTime) {
+      await notify(providerId, {
+        type: "request",
+        text: `${req.user.name} requested you for a job. Accept first to take it.`,
+        requestId: doc._id,
+      });
+    }
     const extras = await loadPeople(doc.toObject());
     res.json({ request: presentRequest(doc, extras) });
   })
@@ -239,26 +274,46 @@ router.post(
   "/:id/accept",
   asyncHandler(async (req, res) => {
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Only workers can take jobs");
-    const doc = await Request.findById(req.params.id);
-    if (!doc) throw httpError(404, "Request not found");
-    if (doc.providerId && String(doc.providerId) !== req.userId) throw httpError(409, "Already assigned");
     const busy = await Request.findOne({
       providerId: req.userId,
       status: { $in: ["accepted", "scheduled", "in_progress"] },
-      _id: { $ne: doc._id },
     }).select("_id").lean();
     if (busy) throw httpError(409, "Finish your current job before accepting another.");
-    doc.providerId = req.userId;
-    pushTimeline(doc, "accepted", "Worker accepted the job");
-    await doc.save();
-    await ensureConversation(doc);
-    await notify(doc.customerId, {
+    const taken = await Request.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ["open", "requested", "matching"] },
+        declinedBy: { $ne: req.userId },
+        $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: req.userId }],
+      },
+      {
+        $set: { providerId: req.userId, status: "accepted" },
+        $push: { timeline: { status: "accepted", note: "First worker to accept took this job", at: new Date() } },
+      },
+      { new: true }
+    );
+    if (!taken) {
+      const existing = await Request.findById(req.params.id).select("status providerId").lean();
+      if (!existing) throw httpError(404, "Request not found");
+      if (existing.providerId && String(existing.providerId) !== req.userId) {
+        throw httpError(409, "Another worker already accepted this job.");
+      }
+      throw httpError(409, "This job is no longer available.");
+    }
+    await ensureConversation(taken);
+    await notify(taken.customerId, {
       type: "success",
       text: `${req.user.provider?.businessName || req.user.name} accepted your job`,
-      requestId: doc._id,
+      requestId: taken._id,
     });
-    const extras = await loadPeople(doc.toObject());
-    res.json({ request: presentRequest(doc, extras) });
+    const others = (taken.invitedProviderIds || []).map(String).filter((id) => id !== req.userId);
+    await notifyMany(others, {
+      type: "info",
+      text: "Another worker accepted this job first.",
+      requestId: taken._id,
+    });
+    const extras = await loadPeople(taken.toObject());
+    res.json({ request: presentRequest(taken, extras) });
   })
 );
 

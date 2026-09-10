@@ -106,6 +106,7 @@ export function presentRequest(doc, extras = {}) {
     code: r.code,
     customerId: r.customerId ? String(r.customerId) : null,
     providerId: r.providerId ? String(r.providerId) : null,
+    invitedProviderIds: (r.invitedProviderIds || []).map((id) => String(id)),
     postedByRole: r.postedByRole || "customer",
     description: r.description,
     category: r.category,

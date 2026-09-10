@@ -14,15 +14,17 @@ interface Props {
 
 export default function MatchedProviders({ navigate, onSelectProvider }: Props) {
   const [sortBy, setSortBy] = useState("rating");
-  const { activeRequestId, setActiveRequestId, user } = useApp();
+  const { activeRequestId, user } = useApp();
   const [actionError, setActionError] = useState("");
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const { data, loading, error } = useFetch<{ request: JobRequest }>(
+  const { data, loading, error, reload } = useFetch<{ request: JobRequest }>(
     activeRequestId ? `/requests/${activeRequestId}?matches=true` : null
   );
   const matchedProviders = data?.request.matches || [];
   const request = data?.request;
+  const invited = new Set(request?.invitedProviderIds || []);
+  const taken = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(request?.status || "");
 
   const sorted = [...matchedProviders]
     .filter((p) => !verifiedOnly || p.verified)
@@ -41,12 +43,15 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
       setActionError("Create a request first so we can connect you with this provider.");
       return;
     }
+    if (taken) {
+      setActionError("A worker already accepted this job.");
+      return;
+    }
     setAssigningId(providerId);
     setActionError("");
     try {
       await RequestAPI.assign(activeRequestId, providerId);
-      setActiveRequestId(activeRequestId);
-      navigate("request-status");
+      reload();
     } catch (requestError) {
       setActionError(requestError instanceof Error ? requestError.message : "Unable to request this provider");
     } finally {
@@ -78,10 +83,23 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
       <div className="max-w-2xl mx-auto px-4 py-5 space-y-4">
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-emerald-800">We found people who can help!</p>
-            <p className="text-xs text-emerald-600">{loading ? "Searching nearby providers..." : `${sorted.length} providers matched your request`}</p>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-800">
+              {taken ? "A worker already accepted this job" : "Request as many workers as you want"}
+            </p>
+            <p className="text-xs text-emerald-600">
+              {taken
+                ? "Only the first worker who accepted can do this job."
+                : invited.size
+                  ? `${invited.size} worker${invited.size === 1 ? "" : "s"} asked. The first one to accept takes the job.`
+                  : `${sorted.length} providers matched. The first worker who accepts gets the job.`}
+            </p>
           </div>
+          {invited.size > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => navigate("request-status")}>
+              Status
+            </Button>
+          )}
         </div>
 
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -150,13 +168,13 @@ export default function MatchedProviders({ navigate, onSelectProvider }: Props) 
                       View Details
                     </Button>
                     <Button
-                      variant="primary"
+                      variant={invited.has(p.id) ? "secondary" : "primary"}
                       size="sm"
-                      disabled={!p.available}
+                      disabled={!p.available || taken || invited.has(p.id)}
                       onClick={() => { onSelectProvider(p); void requestService(p.id); }}
                       loading={assigningId === p.id}
                     >
-                      Request
+                      {taken ? "Taken" : invited.has(p.id) ? "Requested" : "Request"}
                     </Button>
                   </div>
                 </div>

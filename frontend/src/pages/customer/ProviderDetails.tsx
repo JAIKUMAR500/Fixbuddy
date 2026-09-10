@@ -20,9 +20,11 @@ export default function ProviderDetails({ navigate, provider }: Props) {
   const [reviews, setReviews] = useState<ReviewsPayload | null>(null);
   const [busy, setBusy] = useState("");
   const [requestStatus, setRequestStatus] = useState("");
+  const [alreadyRequested, setAlreadyRequested] = useState(false);
   const inbox = user?.role === "customer" ? "customer-messages" : "business-messages";
   const back = user?.role === "customer" || isBusiness(user?.role) ? "matched-providers" : "work-requests";
-  const callAllowed = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(requestStatus);
+  const taken = ["accepted", "scheduled", "in_progress", "completed", "reviewed"].includes(requestStatus);
+  const callAllowed = taken;
 
   useEffect(() => {
     setP(provider);
@@ -37,9 +39,15 @@ export default function ProviderDetails({ navigate, provider }: Props) {
 
   useEffect(() => {
     setRequestStatus("");
+    setAlreadyRequested(false);
     if (!activeRequestId) return;
-    void RequestAPI.get(activeRequestId).then(({ request }) => setRequestStatus(request.status)).catch(() => setRequestStatus(""));
-  }, [activeRequestId]);
+    void RequestAPI.get(activeRequestId)
+      .then(({ request }) => {
+        setRequestStatus(request.status);
+        setAlreadyRequested((request.invitedProviderIds || []).includes(provider?.id || ""));
+      })
+      .catch(() => setRequestStatus(""));
+  }, [activeRequestId, provider?.id]);
 
   if (!p) {
     return (
@@ -224,13 +232,14 @@ export default function ProviderDetails({ navigate, provider }: Props) {
               variant="primary"
               fullWidth
               size="lg"
+              disabled={taken || alreadyRequested}
               loading={busy === "assign"}
               onClick={async () => {
                 if (activeRequestId) {
                   setBusy("assign");
                   try {
                     await RequestAPI.assign(activeRequestId, p.id);
-                    navigate("request-status");
+                    navigate("matched-providers");
                   } catch (e) {
                     window.alert(e instanceof Error ? e.message : "Could not request this worker");
                   } finally {
@@ -242,7 +251,7 @@ export default function ProviderDetails({ navigate, provider }: Props) {
                 navigate("create-request");
               }}
             >
-              Request Service
+              {taken ? "Job taken" : alreadyRequested ? "Requested" : "Request Service"}
             </Button>
           </div>
         </div>

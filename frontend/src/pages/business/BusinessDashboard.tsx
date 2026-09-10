@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { View } from "../../types";
 import { StatCard, Card, SectionHeader, Badge, RatingStars, Button } from "../../components/ui";
+import { JobProgress } from "../../components/JobProgress";
 import { useApp, useFetch } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
 import { mediaUrl, type JobRequest } from "../../api/client";
@@ -22,8 +23,12 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
   const { data: inbox } = useFetch<{ requests: JobRequest[] }>(worker ? "/requests?inbox=true" : "/requests");
   const stats = statsData?.stats || {};
   const list = inbox?.requests || [];
-  const incoming = list.filter((r) => ["open", "requested", "matching"].includes(r.status));
-  const active = list.filter((r) => ["accepted", "scheduled", "in_progress"].includes(r.status));
+  const incoming = list.filter((r) => ["open", "requested", "matching"].includes(r.status) && (!worker || !r.providerId));
+  const active = list.filter(
+    (r) =>
+      ["accepted", "scheduled", "in_progress"].includes(r.status) ||
+      (worker && r.status === "requested" && r.providerId === user?.id)
+  );
 
   return (
     <div className="p-4 lg:p-6 space-y-6 pb-24 lg:pb-6 animate-fade-in">
@@ -104,6 +109,11 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
         <div className="space-y-3">
           {(worker ? (active.length ? active : incoming) : list).slice(0, 4).map((req) => (
             <Card key={req.id} padding="md" className="hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer" onClick={() => navigate(worker ? "work-requests" : "my-jobs")}>
+              {worker && active.some((a) => a.id === req.id) && (
+                <div className="mb-4">
+                  <JobProgress status={req.status} />
+                </div>
+              )}
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex-1">
                   <p className="font-semibold text-slate-900 text-sm line-clamp-1">{req.description}</p>
