@@ -50,50 +50,68 @@ function phoneDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function roleMatches(userRole, requested) {
+  if (!requested) return true;
+  if (requested === "business") return userRole === "business" || userRole === "provider";
+  return userRole === requested;
+}
+
+async function usersMatchingIdent(ident) {
+  if (ident.includes("@")) {
+    return User.find({ email: ident.toLowerCase() }).select("+passwordHash +googleId");
+  }
+  const digits = phoneDigits(ident);
+  if (digits.length >= 10) {
+    const last10 = digits.slice(-10);
+    const pattern = last10.split("").join("[\\s-]*");
+    return User.find({ phone: { $regex: `${pattern}$` } }).select("+passwordHash +googleId");
+  }
+  const code = ident.toUpperCase();
+  return User.find({
+    $or: [{ userCode: code }, { name: { $regex: `^${escapeRegex(ident)}$`, $options: "i" } }],
+  }).select("+passwordHash +googleId");
+}
+
+async function pickUserWithPassword(ident, password, role) {
+  const candidates = await usersMatchingIdent(ident);
+  const matched = [];
+  for (const candidate of candidates) {
+    if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) {
+      matched.push(candidate);
+    }
+  }
+  if (!matched.length) {
+    if (candidates.length === 1 && candidates[0].googleId && !candidates[0].passwordHash) {
+      throw httpError(401, "This account uses Google. Click Continue with Google.");
+    }
+    throw httpError(401, "Invalid email or password. Use the same email and password from signup, not your display name.");
+  }
+  const requested = ["customer", "worker", "business", "provider", "admin"].includes(role) ? role : "";
+  if (requested) {
+    const preferred = matched.filter((u) => roleMatches(u.role, requested));
+    if (preferred.length === 1) return preferred[0];
+    if (preferred.length > 1) {
+      throw httpError(409, "Select the role used for this account before signing in");
+    }
+  }
+  if (matched.length === 1) return matched[0];
+  const roles = [...new Set(matched.map((u) => u.role))].join(", ");
+  throw httpError(409, `This email has more than one account (${roles}). Select that role, then login.`);
+}
+
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    const ident = String(req.body.email || req.body.phone || "").trim();
-    const { password, role } = req.body || {};
+    const ident = String(req.body.email || req.body.phone || req.body.username || "").trim();
+    const password = String(req.body.password || "");
+    const role = String(req.body.role || "").trim().toLowerCase();
     if (!ident || !password) throw httpError(400, "Email / mobile and password are required");
 
-    let user = null;
-    const roleFilter = ["customer", "worker", "business", "provider", "admin"].includes(role) ? { role } : {};
-    if (ident.includes("@")) {
-      const candidates = await User.find({ email: ident.toLowerCase(), ...roleFilter }).select("+passwordHash +googleId");
-      const matched = [];
-      for (const candidate of candidates) {
-        if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) matched.push(candidate);
-      }
-      if (matched.length > 1) throw httpError(409, "Select the role used for this account before signing in");
-      user = matched[0] || null;
-    } else {
-      const digits = phoneDigits(ident);
-      if (digits.length >= 10) {
-        const last10 = digits.slice(-10);
-        const pattern = last10.split("").join("[\\s-]*");
-        const candidates = await User.find({ phone: { $regex: `${pattern}$` } }).select("+passwordHash +googleId");
-        const matched = [];
-        for (const cand of candidates) {
-          if (cand.passwordHash && (await bcrypt.compare(password, cand.passwordHash))) matched.push(cand);
-        }
-        if (matched.length > 1) {
-          throw httpError(401, "This mobile is on more than one account. Sign in with your email.");
-        }
-        user = matched[0] || null;
-      }
-    }
-    if (!user) throw httpError(401, "Invalid email or password");
-    if (!user.passwordHash) {
-      throw httpError(401, user.googleId ? "This account uses Google. Click Continue with Google." : "Invalid email or password");
-    }
-    const ok = ident.includes("@") ? await bcrypt.compare(password, user.passwordHash) : true;
-    if (!ok) {
-      throw httpError(
-        401,
-        user.googleId ? "Wrong password. If you signed up with Google, use Continue with Google." : "Invalid email or password"
-      );
-    }
+    const user = await pickUserWithPassword(ident, password, role);
     if (user.status === "suspended") throw httpError(403, "Account suspended");
     await ensureLoginLicense(user);
     if (!hasValidLicense(user)) {

@@ -163,7 +163,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
             {screen === "forgot-password" && "Choose a new password, then you can sign in."}
             {screen === "form" && (mode === "signup"
               ? "Name, email and password are enough. Extra details can wait."
-              : "Sign in with your email, mobile number, or Google.")}
+              : "Use the same email and password from signup. Select Customer, Worker, or Business to match that account.")}
           </p>
 
           {screen === "form" && (
@@ -212,6 +212,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
                 type="text"
                 inputMode="email"
                 autoComplete="username"
+                placeholder="The email you used to create the account"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
