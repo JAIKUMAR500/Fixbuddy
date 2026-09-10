@@ -1,10 +1,13 @@
 import React, { useState } from "react";
-import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare } from "lucide-react";
+import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare, Play, Flag } from "lucide-react";
 import { View } from "../../types";
 import { Card, Badge, Button, EmptyState, Skeleton, Input } from "../../components/ui";
 import { ChatAPI, RequestAPI, type JobRequest } from "../../api/client";
 import { useApp, useFetch } from "../../api/AppContext";
 import { startCall } from "../../api/phone";
+
+const OPEN = ["open", "requested", "matching"];
+const ACTIVE = ["accepted", "scheduled", "in_progress"];
 
 export default function WorkRequests({ navigate }: { navigate: (v: View) => void }) {
   const { setActiveRequestId, user } = useApp();
@@ -14,16 +17,19 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
   const [quotes, setQuotes] = useState<Record<string, string>>({});
 
   const requests = data?.requests || [];
-  const incoming = requests.filter((r) => ["open", "requested", "matching"].includes(r.status));
-  const accepted = requests.filter((r) => ["accepted", "scheduled", "in_progress"].includes(r.status));
-  const title = user?.role === "worker" ? "Available Jobs" : "Jobs & Requests";
+  const current = requests.filter((r) => ACTIVE.includes(r.status) && (!r.providerId || r.providerId === user?.id));
+  const available = requests.filter((r) => OPEN.includes(r.status) && !r.providerId);
+  const worker = user?.role === "worker";
+  const mustFinish = worker && current.length > 0;
 
-  const act = async (id: string, kind: "accept" | "decline") => {
+  const act = async (id: string, kind: "accept" | "decline" | "start" | "complete") => {
     setBusy(id);
     setActionError("");
     try {
       if (kind === "accept") await RequestAPI.accept(id);
-      else await RequestAPI.decline(id);
+      else if (kind === "decline") await RequestAPI.decline(id);
+      else if (kind === "start") await RequestAPI.start(id);
+      else await RequestAPI.complete(id);
       reload();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Action failed");
@@ -67,22 +73,96 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
   return (
     <div className="p-4 lg:p-6 space-y-5 pb-24 lg:pb-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-slate-900">{title}</h1>
-        <p className="text-slate-500 text-sm">Accept on the left. Call and chat appear on the right after you accept.</p>
+        <h1 className="font-display text-2xl font-bold text-slate-900">
+          {mustFinish ? "Your current job" : worker ? "Available Jobs" : "Jobs & Requests"}
+        </h1>
+        <p className="text-slate-500 text-sm">
+          {mustFinish
+            ? "You accepted this job. Finish it first. Other jobs show after you complete it."
+            : "Accept a job. Call and chat unlock after you accept."}
+        </p>
       </div>
       {actionError && <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{actionError}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {loading && <Skeleton className="h-32 w-full" />}
 
-      {!loading && incoming.length === 0 && accepted.length === 0 && (
-        <EmptyState icon="📥" title="No new requests" description="When a customer needs your service, it will show up here." />
+      {!loading && current.length === 0 && available.length === 0 && (
+        <EmptyState icon="📥" title="No jobs right now" description="When a customer needs your service, it will show up here." />
       )}
 
-      {incoming.length > 0 && (
+      {current.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">New · {incoming.length}</p>
+          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-3">
+            Accepted — finish this first
+          </p>
           <div className="space-y-4">
-            {incoming.map((req) => (
+            {current.map((req) => (
+              <Card key={req.id} padding="md" className="border-emerald-200 ring-1 ring-emerald-100">
+                <p className="text-xs font-semibold text-emerald-700 mb-3">You accepted this job</p>
+                <JobBody req={req} quotes={quotes} setQuotes={setQuotes} busy={false} hideQuote />
+                <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Do the work</p>
+                    {req.status !== "in_progress" ? (
+                      <button
+                        disabled={busy === req.id}
+                        onClick={() => void act(req.id, "start")}
+                        className="min-h-12 rounded-xl bg-sky-600 text-white font-semibold hover:bg-sky-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Play className="w-5 h-5" /> Start job
+                      </button>
+                    ) : (
+                      <button
+                        disabled={busy === req.id}
+                        onClick={() => void act(req.id, "complete")}
+                        className="min-h-12 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Flag className="w-5 h-5" /> Mark complete
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setActiveRequestId(req.id);
+                        navigate("job-details");
+                      }}
+                      className="min-h-12 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50"
+                    >
+                      Details
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Contact customer</p>
+                    <button
+                      onClick={() => startCall(req.customer?.phone)}
+                      className="min-h-12 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5"
+                    >
+                      <Phone className="w-5 h-5" /> Call
+                    </button>
+                    <button
+                      disabled={busy === req.id}
+                      onClick={() => void openChat(req.id)}
+                      className="min-h-12 rounded-xl bg-sky-600 text-white font-semibold hover:bg-sky-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <MessageSquare className="w-5 h-5" /> Message
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+          {mustFinish && available.length > 0 && (
+            <p className="text-sm text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mt-4">
+              {available.length} more job{available.length === 1 ? "" : "s"} waiting. They appear here after you complete the job above.
+            </p>
+          )}
+        </div>
+      )}
+
+      {!mustFinish && available.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">New · {available.length}</p>
+          <div className="space-y-4">
+            {available.map((req) => (
               <Card key={req.id} padding="md">
                 <JobBody req={req} quotes={quotes} setQuotes={setQuotes} busy={busy === req.id} onQuote={() => void sendQuote(req.id)} />
                 <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
@@ -126,52 +206,6 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
           </div>
         </div>
       )}
-
-      {accepted.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Accepted · {accepted.length}</p>
-          <div className="space-y-4">
-            {accepted.map((req) => (
-              <Card key={req.id} padding="md">
-                <JobBody req={req} quotes={quotes} setQuotes={setQuotes} busy={false} hideQuote />
-                <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
-                  <div className="flex flex-col gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job</p>
-                    <div className="min-h-12 rounded-xl bg-emerald-50 text-emerald-700 font-semibold flex items-center justify-center gap-1.5">
-                      <CheckCircle className="w-5 h-5" /> Accepted
-                    </div>
-                    <button
-                      onClick={() => {
-                        setActiveRequestId(req.id);
-                        navigate("job-details");
-                      }}
-                      className="min-h-12 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50"
-                    >
-                      Details
-                    </button>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Contact</p>
-                    <button
-                      onClick={() => startCall(req.customer?.phone)}
-                      className="min-h-12 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5"
-                    >
-                      <Phone className="w-5 h-5" /> Call
-                    </button>
-                    <button
-                      disabled={busy === req.id}
-                      onClick={() => void openChat(req.id)}
-                      className="min-h-12 rounded-xl bg-sky-600 text-white font-semibold hover:bg-sky-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      <MessageSquare className="w-5 h-5" /> Message
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -197,9 +231,9 @@ function JobBody({
         <div>
           <p className="text-xs font-semibold text-sky-600 uppercase tracking-wide mb-1">{req.category}</p>
           <p className="font-semibold text-slate-900">{req.description}</p>
-          <p className="text-xs text-slate-500 mt-1">by {req.customer?.name || "Customer"}</p>
+          <p className="text-xs text-slate-500 mt-1">by {req.customer?.name || "Customer"} · {req.code}</p>
         </div>
-        <Badge variant={req.status === "accepted" || req.status === "in_progress" ? "success" : "info"}>{req.status}</Badge>
+        <Badge variant={ACTIVE.includes(req.status) ? "success" : "info"}>{req.status.replace("_", " ")}</Badge>
       </div>
       {req.photos?.length ? (
         <div className="grid grid-cols-3 gap-2 mb-3">

@@ -97,19 +97,19 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
 
       <div>
         <SectionHeader
-          title={worker ? "Available jobs" : "Jobs you posted"}
+          title={worker && active.length ? "Current job — finish this first" : worker ? "Available jobs" : "Jobs you posted"}
           actionLabel="View all"
           action={() => navigate(worker ? "work-requests" : "my-jobs")}
         />
         <div className="space-y-3">
-          {(worker ? incoming : list).slice(0, 4).map((req) => (
+          {(worker ? (active.length ? active : incoming) : list).slice(0, 4).map((req) => (
             <Card key={req.id} padding="md" className="hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer" onClick={() => navigate(worker ? "work-requests" : "my-jobs")}>
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex-1">
                   <p className="font-semibold text-slate-900 text-sm line-clamp-1">{req.description}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{req.category} · {req.postedByRole || "customer"}</p>
                 </div>
-                <Badge variant="info" className="flex-shrink-0">{req.status}</Badge>
+                <Badge variant={active.some((a) => a.id === req.id) ? "success" : "info"} className="flex-shrink-0">{req.status.replace("_", " ")}</Badge>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                 <span>📍 {req.area || req.city}</span>
@@ -119,6 +119,11 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
             </Card>
           ))}
           {!list.length && <p className="text-sm text-slate-500">{worker ? "No open jobs right now." : "Post a job to hire workers."}</p>}
+          {worker && active.length > 0 && incoming.length > 0 && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              {incoming.length} more job{incoming.length === 1 ? "" : "s"} hidden until you complete the current one.
+            </p>
+          )}
         </div>
       </div>
 

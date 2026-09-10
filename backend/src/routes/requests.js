@@ -242,6 +242,12 @@ router.post(
     const doc = await Request.findById(req.params.id);
     if (!doc) throw httpError(404, "Request not found");
     if (doc.providerId && String(doc.providerId) !== req.userId) throw httpError(409, "Already assigned");
+    const busy = await Request.findOne({
+      providerId: req.userId,
+      status: { $in: ["accepted", "scheduled", "in_progress"] },
+      _id: { $ne: doc._id },
+    }).select("_id").lean();
+    if (busy) throw httpError(409, "Finish your current job before accepting another.");
     doc.providerId = req.userId;
     pushTimeline(doc, "accepted", "Worker accepted the job");
     await doc.save();
