@@ -37,7 +37,7 @@ export function roleHome(user: AppUser): View {
   return "customer-home";
 }
 
-const PUBLIC_VIEWS: View[] = ["landing", "login", "signup", "business-landing", "admin-login"];
+const PUBLIC_VIEWS: View[] = ["landing", "login", "signup", "business-landing", "admin-login", "public-passport", "family-watch"];
 
 const CUSTOMER_VIEWS: View[] = [
   "customer-home",
@@ -58,6 +58,9 @@ const CUSTOMER_VIEWS: View[] = [
   "customer-support",
   "customer-favorites",
   "ai-recommend",
+  "find-crew",
+  "public-passport",
+  "active-job",
 ];
 
 const BUSINESS_VIEWS: View[] = [
@@ -83,6 +86,9 @@ const BUSINESS_VIEWS: View[] = [
   "business-wallet",
   "business-team",
   "ai-recommend",
+  "find-crew",
+  "public-passport",
+  "active-job",
 ];
 
 const WORKER_VIEWS: View[] = [
@@ -102,7 +108,14 @@ const WORKER_VIEWS: View[] = [
   "provider-settings",
   "worker-license",
   "worker-wallet",
+  "worker-target",
+  "worker-next-jobs",
+  "worker-crews",
+  "worker-passport",
+  "worker-safety",
+  "public-passport",
   "ai-recommend",
+  "active-job",
 ];
 
 const ADMIN_VIEWS: View[] = [
@@ -124,6 +137,8 @@ const ADMIN_VIEWS: View[] = [
   "admin-users",
   "admin-audit",
   "admin-licenses",
+  "admin-safety",
+  "admin-crews",
 ];
 
 export function canAccessView(user: AppUser | null, view: View) {

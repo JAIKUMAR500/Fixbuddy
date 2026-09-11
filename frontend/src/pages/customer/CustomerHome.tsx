@@ -5,8 +5,7 @@ import { Card, Badge, RatingStars, VerifiedBadge, Button, Avatar, EmptyState } f
 import TrackMap from "../../components/TrackMap";
 import { useApp, useFetch } from "../../api/AppContext";
 import { mediaUrl, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
-
-const ACTIVE = ["matching", "open", "requested", "accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed", "payment_collected"];
+import { isEngagedStatus, isPendingStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
 
 export default function CustomerHome({ navigate }: { navigate: (v: View) => void }) {
   const { user, setRequestData, setSelectedProvider, setActiveRequestId } = useApp();
@@ -25,7 +24,10 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
     ? `?lat=${lat}&lng=${lng}&available=${availableOnly}&maxKm=${maxKm}&minRating=${minRating}${category ? `&category=${encodeURIComponent(category)}` : ""}`
     : `?available=${availableOnly}${category ? `&category=${encodeURIComponent(category)}` : ""}`;
   const { data: providerData } = useFetch<{ providers: Provider[] }>(`/providers${nearbyQs}`);
-  const activeRequest = data?.requests.find((request) => ACTIVE.includes(request.status));
+  const requests = data?.requests || [];
+  const currentJob = requests.find((request) => isEngagedStatus(request.status));
+  const pending = requests.filter((request) => isPendingStatus(request.status) && request.id !== currentJob?.id);
+  const completed = requests.filter((request) => isPaidStatus(request.status)).slice(0, 3);
   const cats = catData?.categories || [];
   const nearby = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -79,6 +81,9 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
           Find Help <ArrowRight className="w-4 h-4" />
         </Button>
       </div>
+      <button type="button" onClick={() => navigate("find-crew")} className="text-sm font-semibold text-brand">
+        Need several workers? Find a team →
+      </button>
 
       {showFilters && (
         <Card className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -119,15 +124,40 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
         </Card>
       )}
 
-      {activeRequest && (
-        <Card className="flex items-center justify-between gap-3 bg-navy text-white border-navy">
-          <div>
-            <p className="text-blue-200 text-xs font-semibold uppercase">Active request</p>
-            <p className="font-semibold">{activeRequest.category}</p>
-            <p className="text-slate-300 text-xs">{activeRequest.status.replace(/_/g, " ")} · {activeRequest.code}</p>
-          </div>
-          <Button onClick={() => { setActiveRequestId(activeRequest.id); navigate("request-status"); }}>Track</Button>
+      {currentJob && (
+        <Card className="bg-navy text-white border-navy space-y-2">
+          <p className="text-blue-200 text-xs font-semibold uppercase">Current job</p>
+          <p className="font-semibold text-lg">{currentJob.category}</p>
+          <p className="text-slate-300 text-sm">
+            {currentJob.provider?.name || "Worker assigned"} · {statusLabel(currentJob.status)}
+            {currentJob.etaMinutes ? ` · ETA ${currentJob.etaMinutes} min` : ""}
+          </p>
+          <Button onClick={() => { setActiveRequestId(currentJob.id); navigate("active-job"); }}>Open active job</Button>
         </Card>
+      )}
+      {pending.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="font-bold text-slate-900">Other requests</h2>
+          {pending.map((r) => (
+            <Card key={r.id} className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">{r.category}</p>
+                <p className="text-xs text-slate-500">{statusLabel(r.status)} · {r.code}</p>
+              </div>
+              <Button variant="outline" onClick={() => { setActiveRequestId(r.id); navigate("request-status"); }}>View</Button>
+            </Card>
+          ))}
+        </div>
+      )}
+      {completed.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="font-bold text-slate-900">Completed jobs</h2>
+          {completed.map((r) => (
+            <button key={r.id} type="button" className="w-full text-left text-sm text-slate-600" onClick={() => { setActiveRequestId(r.id); navigate("request-status"); }}>
+              {r.category} · {r.provider?.name || "Worker"} · ₹{r.workerQuote || r.estimatedAmount || 0}
+            </button>
+          ))}
+        </div>
       )}
 
       <div>

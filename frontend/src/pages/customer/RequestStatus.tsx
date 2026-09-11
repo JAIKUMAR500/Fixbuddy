@@ -5,7 +5,7 @@ import { Button, Card, RatingStars, Avatar, EmptyState } from "../../components/
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import TrackMap from "../../components/TrackMap";
 import { useApp, useFetch } from "../../api/AppContext";
-import { RequestAPI, ChatAPI, mediaUrl, type JobRequest } from "../../api/client";
+import { RequestAPI, ChatAPI, SafetyAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { isBusiness } from "../../api/roles";
 import { startCall, jobAllowsCall } from "../../api/phone";
 
@@ -20,6 +20,8 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   const path = activeRequestId ? `/requests/${activeRequestId}` : "/requests/active";
   const { data, loading, error, reload } = useFetch<{ request: JobRequest | null }>(path, activeRequestId ? 1 : 0);
   const [cancelling, setCancelling] = React.useState(false);
+  const [cancelReason, setCancelReason] = React.useState("");
+  const [reportMsg, setReportMsg] = React.useState("");
   const [acting, setActing] = React.useState("");
   const request = data?.request || null;
   const provider = request?.provider;
@@ -85,7 +87,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
     if (!request?.id) return;
     setCancelling(true);
     try {
-      await RequestAPI.cancel(request.id);
+      await RequestAPI.cancel(request.id, { reason: cancelReason || (worker ? "Worker cancelled" : "Customer cancelled") });
       navigate(backView);
     } finally {
       setCancelling(false);
@@ -188,6 +190,19 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                   <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-600" /> Worker</span>
                   {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
                   {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
+                </div>
+              </Card>
+            )}
+
+            {!!request.crewMembers?.length && (
+              <Card padding="md">
+                <p className="font-semibold text-slate-900 mb-2">{request.crewMembers.length} workers assigned</p>
+                <div className="space-y-1.5">
+                  {request.crewMembers.map((m) => (
+                    <p key={m.id} className="text-sm text-slate-600">
+                      {m.state === "arrived" ? "✓" : m.state === "arriving" ? "→" : "·"} {m.name} · {m.state === "arrived" ? "Arrived" : m.state === "arriving" ? "Arriving" : "Assigned"}
+                    </p>
+                  ))}
                 </div>
               </Card>
             )}
@@ -346,9 +361,48 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
             )}
 
             {!["payment_collected", "customer_completed", "reviewed"].includes(request.status) && (
-              <button onClick={() => void cancelRequest()} disabled={cancelling} className="w-full text-center text-base text-red-500 font-medium py-4 min-h-12 rounded-xl border border-red-200 hover:bg-red-50 disabled:opacity-50">
-                {cancelling ? "Cancelling..." : "Cancel Request"}
-              </button>
+              <div className="space-y-2">
+                {worker && (
+                  <select value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm">
+                    <option value="">Cancellation reason</option>
+                    <option>Emergency</option>
+                    <option>Customer requested cancellation</option>
+                    <option>Wrong job information</option>
+                    <option>Unsafe location</option>
+                    <option>Vehicle problem</option>
+                    <option>Personal emergency</option>
+                    <option>Other</option>
+                  </select>
+                )}
+                {!worker && (
+                  <select value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm">
+                    <option value="">Why are you cancelling?</option>
+                    <option>Changed plans</option>
+                    <option>Worker delayed</option>
+                    <option>Found another option</option>
+                    <option>Other</option>
+                  </select>
+                )}
+                <button onClick={() => void cancelRequest()} disabled={cancelling} className="w-full text-center text-base text-red-500 font-medium py-4 min-h-12 rounded-xl border border-red-200 hover:bg-red-50 disabled:opacity-50">
+                  {cancelling ? "Cancelling..." : "Cancel Request"}
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-center text-sm text-slate-500 font-medium py-3"
+                  onClick={() => {
+                    void SafetyAPI.report({
+                      requestId: request.id,
+                      subject: worker ? "Report customer" : "Report worker",
+                      body: cancelReason || "Reported from live tracking",
+                    })
+                      .then(() => setReportMsg("Report submitted to FixBuddy support."))
+                      .catch((e: Error) => setReportMsg(e.message));
+                  }}
+                >
+                  {worker ? "Report customer" : "Report worker"}
+                </button>
+                {reportMsg && <p className="text-xs text-center text-slate-500">{reportMsg}</p>}
+              </div>
             )}
           </>
         )}

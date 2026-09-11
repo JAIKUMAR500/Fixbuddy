@@ -40,6 +40,20 @@ const providerSchema = new mongoose.Schema(
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
     onboarded: { type: Boolean, default: false },
+    dailyTargetAmount: { type: Number, default: 1500 },
+    nextJobAvailable: { type: Boolean, default: true },
+    languages: { type: [String], default: [] },
+    passportBio: { type: String, default: "" },
+    skills: {
+      type: [
+        {
+          name: { type: String, required: true },
+          verified: { type: Boolean, default: false },
+          pending: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
   },
   { _id: false }
 );
@@ -66,10 +80,12 @@ const userSchema = new mongoose.Schema(
     studies: { type: String, default: "" },
     aadhaar: { type: String, default: "" },
     pan: { type: String, default: "" },
-    lang: { type: String, enum: ["en", "ta"], default: "en" },
+    lang: { type: String, enum: ["en", "ta", "hi"], default: "en" },
     profileAsked: { type: Boolean, default: false },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
+    homeLat: { type: Number, default: null },
+    homeLng: { type: Number, default: null },
     lastSeenAt: { type: Date, default: null },
     status: { type: String, enum: ["active", "suspended"], default: "active", index: true },
     userCode: { type: String, unique: true, sparse: true, index: true },

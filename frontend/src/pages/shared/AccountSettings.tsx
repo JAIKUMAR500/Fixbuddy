@@ -5,7 +5,7 @@ import { useApp } from "../../api/AppContext";
 import { AuthAPI, uploadImage } from "../../api/client";
 import { capturePlace } from "../../api/geo";
 import { UserIdCard } from "./AccountModules";
-import { useLang } from "../../i18n/LangContext";
+import { useLang, LANGS } from "../../i18n/LangContext";
 
 export default function AccountSettings() {
   const { user, setUser, logout } = useApp();
@@ -157,18 +157,29 @@ export default function AccountSettings() {
 
       <Card className="space-y-4">
         <h2 className="font-semibold flex items-center gap-2"><Globe className="w-4 h-4 text-brand" /> Language</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {(["en", "ta"] as const).map((l) => (
+        <p className="text-sm text-slate-500">App language for menus, job actions and notifications.</p>
+        <div className="grid grid-cols-3 gap-2">
+          {LANGS.map(({ id }) => (
             <button
-              key={l}
+              key={id}
               type="button"
               onClick={() => {
-                setLang(l);
-                void AuthAPI.updateMe({ lang: l }).then((d) => setUser(d.user)).catch(() => {});
+                const prev = lang;
+                setLang(id);
+                setError("");
+                void AuthAPI.updateMe({ lang: id })
+                  .then((d) => {
+                    setUser(d.user);
+                    setMsg(id === "en" ? "Language saved: English" : id === "ta" ? "மொழி சேமிக்கப்பட்டது: தமிழ்" : "भाषा सेव हुई: हिन्दी");
+                  })
+                  .catch((e) => {
+                    setLang(prev);
+                    setError(e instanceof Error ? e.message : "Could not save language");
+                  });
               }}
-              className={`min-h-12 rounded-xl border text-sm font-semibold ${lang === l ? "bg-brand text-white border-brand" : "bg-white border-slate-200 text-slate-700"}`}
+              className={`min-h-12 rounded-xl border text-sm font-semibold ${lang === id ? "bg-brand text-white border-brand" : "bg-white border-slate-200 text-slate-700"}`}
             >
-              {l === "en" ? t("lang.en") : t("lang.ta")}
+              {t(`lang.${id}`)}
             </button>
           ))}
         </div>

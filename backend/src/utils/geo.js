@@ -20,6 +20,8 @@ export function isOnline(lastSeenAt, ms = 120000) {
 }
 
 export const BUSY_JOB_STATUSES = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"];
+/** Worker is locked until payment is collected or the job is cancelled. */
+export const LOCKED_JOB_STATUSES = [...BUSY_JOB_STATUSES, "completed"];
 export const OPEN_JOB_STATUSES = ["matching", "open", "requested"];
 export const PAID_JOB_STATUSES = ["payment_collected", "customer_completed", "reviewed"];
 export const TRACKING_STATUSES = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"];

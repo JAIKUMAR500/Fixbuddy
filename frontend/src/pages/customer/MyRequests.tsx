@@ -4,6 +4,7 @@ import { View } from "../../types";
 import { Tabs, StatusBadge, EmptyState, Card } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import type { JobRequest } from "../../api/client";
+import { isEngagedStatus } from "../../api/jobLock";
 
 export default function MyRequests({ navigate }: { navigate: (v: View) => void }) {
   const [tab, setTab] = useState("Active");
@@ -79,7 +80,7 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
               className="hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer"
               onClick={() => {
                 setActiveRequestId(r.id);
-                navigate("request-status");
+                navigate(isEngagedStatus(r.status) ? "active-job" : "request-status");
               }}
             >
               <div className="flex items-start justify-between gap-3 mb-3">

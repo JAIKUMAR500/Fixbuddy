@@ -25,6 +25,10 @@ import {
   KeyRound,
   Heart,
   LifeBuoy,
+  Target,
+  Compass,
+  IdCard,
+  ShieldAlert,
 } from "lucide-react";
 import { View } from "../types";
 import { Avatar } from "./ui";
@@ -32,7 +36,7 @@ import type { AppUser } from "../api/client";
 import { isBusiness, isSeeker, roleLabel } from "../api/roles";
 import { displayName } from "../api/display";
 import RoleGlyph from "./RoleGlyph";
-import { useLang } from "../i18n/LangContext";
+import { useLang, LANGS } from "../i18n/LangContext";
 import { AuthAPI } from "../api/client";
 import { useApp } from "../api/AppContext";
 
@@ -59,8 +63,13 @@ function itemsFor(variant: Variant, t: (k: string) => string): { icon: typeof Ho
   if (variant === "worker") {
     return [
       { icon: LayoutDashboard, label: t("nav.dashboard"), view: "business-dashboard" },
-      { icon: Wrench, label: t("nav.myJobs"), view: "my-jobs" },
       { icon: Briefcase, label: t("nav.available"), view: "work-requests" },
+      { icon: Compass, label: t("nav.nextJob"), view: "worker-next-jobs" },
+      { icon: Users, label: t("nav.crews"), view: "worker-crews" },
+      { icon: IdCard, label: t("nav.passport"), view: "worker-passport" },
+      { icon: Target, label: t("nav.target"), view: "worker-target" },
+      { icon: ShieldAlert, label: t("nav.safety"), view: "worker-safety" },
+      { icon: Wrench, label: t("nav.myJobs"), view: "my-jobs" },
       { icon: FolderTree, label: t("nav.services"), view: "provider-services" },
       { icon: Sparkles, label: t("nav.ai"), view: "ai-recommend" },
       { icon: DollarSign, label: t("nav.earnings"), view: "earnings" },
@@ -108,6 +117,8 @@ function itemsFor(variant: Variant, t: (k: string) => string): { icon: typeof Ho
     { icon: Wallet, label: "Transactions", view: "admin-transactions" },
     { icon: LayoutDashboard, label: "Analytics", view: "admin-analytics" },
     { icon: KeyRound, label: "Licenses", view: "admin-licenses" },
+    { icon: ShieldAlert, label: "Safety", view: "admin-safety" },
+    { icon: Users, label: "Worker teams", view: "admin-crews" },
     { icon: Users, label: "Admin Users", view: "admin-users" },
     { icon: ClipboardList, label: "Audit Logs", view: "admin-audit" },
     { icon: Settings, label: "Settings", view: "admin-settings" },
@@ -137,7 +148,7 @@ export default function AppShell({
 }) {
   const [open, setOpen] = React.useState(false);
   const { t, lang, setLang } = useLang();
-  const { setUser } = useApp();
+  const { setUser, currentJob, setActiveRequestId } = useApp();
   const items = itemsFor(variant, t);
   const shown = displayName(user);
   const title =
@@ -183,17 +194,17 @@ export default function AppShell({
             <LogOut className="w-4 h-4" /> {t("nav.signOut")}
           </button>
           <div className="flex gap-1 mt-3">
-            {(["en", "ta"] as const).map((l) => (
+            {LANGS.map(({ id, short }) => (
               <button
-                key={l}
+                key={id}
                 type="button"
                 onClick={() => {
-                  setLang(l);
-                  if (user) void AuthAPI.updateMe({ lang: l }).then((d) => setUser(d.user)).catch(() => {});
+                  setLang(id);
+                  if (user) void AuthAPI.updateMe({ lang: id }).then((d) => setUser(d.user)).catch(() => {});
                 }}
-                className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${lang === l ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${lang === id ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`}
               >
-                {l === "en" ? "EN" : "TA"}
+                {short}
               </button>
             ))}
           </div>
@@ -238,6 +249,21 @@ export default function AppShell({
               >
                 <LogOut className="w-4 h-4" /> {t("nav.signOut")}
               </button>
+              <div className="flex gap-1 mt-3">
+                {LANGS.map(({ id, short }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setLang(id);
+                      if (user) void AuthAPI.updateMe({ lang: id }).then((d) => setUser(d.user)).catch(() => {});
+                    }}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${lang === id ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`}
+                  >
+                    {short}
+                  </button>
+                ))}
+              </div>
             </div>
           </aside>
         </div>
@@ -279,7 +305,25 @@ export default function AppShell({
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto pb-24 lg:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-24 lg:pb-0">
+          {currentJob && currentView !== "active-job" && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveRequestId(currentJob.id);
+                navigate("active-job");
+              }}
+              className="w-full text-left px-4 py-3 bg-slate-900 text-white flex items-center justify-between gap-3"
+            >
+              <span>
+                <span className="block text-[10px] uppercase tracking-wider text-sky-200">Active job</span>
+                <span className="font-semibold">{currentJob.category} · {currentJob.status.replace(/_/g, " ")}</span>
+              </span>
+              <span className="text-sm font-semibold text-sky-200">Open</span>
+            </button>
+          )}
+          {children}
+        </main>
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 flex">
           {items.slice(0, 5).map(({ icon: Icon, label, view }) => (
             <button

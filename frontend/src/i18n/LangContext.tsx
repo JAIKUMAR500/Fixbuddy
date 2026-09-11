@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useMemo, useState } from "react";
 
-export type Lang = "en" | "ta";
+export type Lang = "en" | "ta" | "hi";
+
+export const LANGS: { id: Lang; short: string }[] = [
+  { id: "en", short: "EN" },
+  { id: "ta", short: "TA" },
+  { id: "hi", short: "HI" },
+];
 
 const STRINGS: Record<Lang, Record<string, string>> = {
   en: {
@@ -25,10 +31,16 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "nav.schedule": "Schedule",
     "nav.analytics": "Analytics",
     "nav.team": "Team",
+    "nav.crews": "Crews",
+    "nav.nextJob": "Next job",
+    "nav.passport": "Passport",
+    "nav.target": "Target",
+    "nav.safety": "Safety",
     "nav.ai": "AI Jobs",
     "nav.signOut": "Sign out",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
+    "lang.hi": "हिन्दी",
     "common.save": "Save",
     "common.skip": "Skip for now",
     "common.add": "Add",
@@ -58,6 +70,16 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "team.members": "Members",
     "team.invite": "Add member",
     "team.newGroup": "New group",
+    "job.accept": "Accept job",
+    "job.onTheWay": "On the way",
+    "job.arrived": "I've arrived",
+    "job.enterOtp": "Enter OTP",
+    "job.start": "Start work",
+    "job.complete": "Mark work complete",
+    "job.collect": "Cash collected",
+    "job.cancel": "Cancel job",
+    "job.findNextJob": "Find next job",
+    "job.activeJob": "Active job",
   },
   ta: {
     "nav.home": "முகப்பு",
@@ -81,10 +103,16 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "nav.schedule": "அட்டவணை",
     "nav.analytics": "பகுப்பாய்வு",
     "nav.team": "குழு",
+    "nav.crews": "குழுவினர்",
+    "nav.nextJob": "அடுத்த வேலை",
+    "nav.passport": "பாஸ்போர்ட்",
+    "nav.target": "இலக்கு",
+    "nav.safety": "பாதுகாப்பு",
     "nav.ai": "AI வேலைகள்",
     "nav.signOut": "வெளியேறு",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
+    "lang.hi": "हिन्दी",
     "common.save": "சேமி",
     "common.skip": "இப்போது தவிர்",
     "common.add": "சேர்",
@@ -114,6 +142,31 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "team.members": "உறுப்பினர்கள்",
     "team.invite": "உறுப்பினர் சேர்",
     "team.newGroup": "புதிய பிரிவு",
+    "job.accept": "வேலையை ஏற்றுக்கொள்",
+    "job.onTheWay": "வழியில் உள்ளேன்",
+    "job.arrived": "வந்துவிட்டேன்",
+    "job.enterOtp": "OTP உள்ளிடு",
+    "job.start": "வேலை தொடங்கு",
+    "job.complete": "வேலை முடிந்தது",
+    "job.collect": "பணம் பெற்றேன்",
+    "job.cancel": "ரத்து செய்",
+    "job.findNextJob": "அடுத்த வேலை",
+    "job.activeJob": "நடப்பு வேலை",
+  },
+  hi: {
+    "lang.en": "English",
+    "lang.ta": "தமிழ்",
+    "lang.hi": "हिन्दी",
+    "job.accept": "जॉब स्वीकार करें",
+    "job.onTheWay": "रास्ते में हूँ",
+    "job.arrived": "पहुँच गया",
+    "job.enterOtp": "OTP दर्ज करें",
+    "job.start": "काम शुरू करें",
+    "job.complete": "काम पूरा करें",
+    "job.collect": "नकद प्राप्त",
+    "job.cancel": "रद्द करें",
+    "job.findNextJob": "अगला जॉब खोजें",
+    "job.activeJob": "चालू जॉब",
   },
 };
 
@@ -129,7 +182,7 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     try {
       const saved = localStorage.getItem("fb_lang");
-      if (saved === "ta" || saved === "en") return saved;
+      if (saved === "ta" || saved === "en" || saved === "hi") return saved;
     } catch {
       /* ignore */
     }

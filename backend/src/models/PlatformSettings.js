@@ -13,6 +13,10 @@ const settingsSchema = new mongoose.Schema(
     smtpUser: { type: String, default: "" },
     smtpPass: { type: String, default: "" },
     commissionPercent: { type: Number, default: 10 },
+    travelCompensationInr: { type: Number, default: 75 },
+    festivalName: { type: String, default: "" },
+    festivalCity: { type: String, default: "" },
+    festivalNote: { type: String, default: "" },
     platformName: { type: String, default: "FixBuddy" },
   },
   { timestamps: true }

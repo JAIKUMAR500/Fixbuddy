@@ -82,6 +82,32 @@ const requestSchema = new mongoose.Schema(
     matches: { type: [matchSchema], default: [] },
     invitedProviderIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    crewId: { type: mongoose.Schema.Types.ObjectId, ref: "Crew", default: null, index: true },
+    crewMemberIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    workersRequired: { type: Number, default: 1 },
+    cancelReason: { type: String, default: "" },
+    travelCompensation: { type: Number, default: 0 },
+    acceptedAt: { type: Date, default: null },
+    customerLanguage: { type: String, default: "en" },
+    workerLanguage: { type: String, default: "en" },
+    translatedDescription: { type: String, default: "" },
+    workPhotos: {
+      before: { type: [String], default: [] },
+      during: { type: [String], default: [] },
+      after: { type: [String], default: [] },
+    },
+    watchToken: { type: String, default: "", index: true },
+    watchTokenExpiresAt: { type: Date, default: null },
+    tower: { type: String, default: "" },
+    flat: { type: String, default: "" },
+    gateNote: { type: String, default: "" },
+    visitorName: { type: String, default: "" },
+    delayReason: { type: String, default: "" },
+    delayNote: { type: String, default: "" },
+    preferredProviderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    pinCode: { type: String, default: "" },
+    cancelledAt: { type: Date, default: null },
+    cancelledBy: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -89,5 +115,7 @@ const requestSchema = new mongoose.Schema(
 requestSchema.index({ status: 1, category: 1, city: 1, createdAt: -1 });
 requestSchema.index({ customerId: 1, createdAt: -1 });
 requestSchema.index({ providerId: 1, status: 1, createdAt: -1 });
+requestSchema.index({ pinCode: 1, category: 1, city: 1, paymentStatus: 1 });
+requestSchema.index({ watchToken: 1, watchTokenExpiresAt: 1 });
 
 export const Request = mongoose.model("Request", requestSchema);

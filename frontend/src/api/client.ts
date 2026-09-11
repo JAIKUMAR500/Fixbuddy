@@ -174,7 +174,11 @@ export const RequestAPI = {
     api<{ request: JobRequest }>(`/requests/${id}/schedule`, { method: "POST", body: JSON.stringify(body) }),
   start: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/start`, { method: "POST" }),
   complete: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/complete`, { method: "POST" }),
-  cancel: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/cancel`, { method: "POST" }),
+  cancel: (id: string, body?: object) =>
+    api<{ request: JobRequest; compensation?: number; eligible?: boolean }>(`/requests/${id}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
   review: (id: string, body: object) =>
     api<{ request: JobRequest }>(`/requests/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   quote: (id: string, amount: number) =>
@@ -192,6 +196,16 @@ export const RequestAPI = {
   customerComplete: (id: string) =>
     api<{ request: JobRequest }>(`/requests/${id}/customer-complete`, { method: "POST" }),
   active: () => api<{ request: JobRequest | null }>("/requests/active"),
+  currentJob: () => api<{ request: JobRequest | null; locked?: boolean }>("/requests/current-job"),
+  watchLink: (id: string) =>
+    api<{ token: string; expiresAt: string; path: string }>(`/requests/${id}/watch-link`, { method: "POST" }),
+  revokeWatch: (id: string) => api<{ ok: boolean }>(`/requests/${id}/watch-link`, { method: "DELETE" }),
+  workPhotos: (id: string, stage: "before" | "during" | "after", url: string) =>
+    api<{ request: JobRequest }>(`/requests/${id}/work-photos`, { method: "POST", body: JSON.stringify({ stage, url }) }),
+  delay: (id: string, reason: string, note = "") =>
+    api<{ request: JobRequest }>(`/requests/${id}/delay`, { method: "POST", body: JSON.stringify({ reason, note }) }),
+  priceBand: (q: string) =>
+    api<{ min: number | null; max: number | null; text: string; sample: number }>(`/requests/price-band${q}`),
 };
 
 export const ChatAPI = {
@@ -242,6 +256,212 @@ export const TeamAPI = {
   removeMember: (id: string) => api<{ team: TeamPayload }>(`/team/members/${id}`, { method: "DELETE" }),
 };
 
+export type WorkerJobCard = {
+  id: string;
+  code?: string;
+  category: string;
+  description?: string;
+  amount: number;
+  area?: string;
+  city?: string;
+  timing?: string;
+  distanceKm: number | null;
+  etaMinutes: number | null;
+  durationHours?: number;
+  urgent?: boolean;
+  status?: string;
+  workersRequired?: number;
+  onWayHome?: boolean;
+  homeKm?: number | null;
+};
+
+export type WorkerTarget = {
+  date: string;
+  amount: number;
+  earned: number;
+  remaining: number;
+  percent: number;
+  achieved: boolean;
+  jobsCompleted?: number;
+};
+
+export type WorkerBadge = { id: string; label: string; icon: string };
+
+export type WorkerCrew = {
+  id: string;
+  name: string;
+  description: string;
+  skills: string[];
+  serviceArea: string;
+  maxMembers: number;
+  leaderId: string;
+  leader?: { name: string; category?: string; userId?: string };
+  members: {
+    id: string;
+    userId: string;
+    role: string;
+    status: string;
+    sharePercent: number;
+    name: string;
+    avatar?: string;
+    category?: string;
+    verified?: boolean;
+    ratingAvg?: number;
+    userCode?: string;
+  }[];
+  activeCount: number;
+  splitMode: string;
+  status: string;
+  completedJobs: number;
+  ratingAvg: number;
+  ratingCount: number;
+};
+
+export type WorkerPassport = {
+  userCode: string;
+  name: string;
+  avatar?: string;
+  category: string;
+  experience: string;
+  verified: boolean;
+  ratingAvg: number;
+  ratingCount: number;
+  completedJobs: number;
+  onTimePct: number;
+  cancelPct: number;
+  city?: string;
+  area?: string;
+  serviceAreas?: string[];
+  languages?: string[];
+  bio?: string;
+  skills: { id?: string; name: string; verified: boolean; pending: boolean }[];
+  badges: WorkerBadge[];
+  stats?: Record<string, unknown>;
+  byCategory?: Record<string, { jobs: number; amount: number }>;
+  proof?: { category: string; before: string; after: string }[];
+};
+
+export const WorkerAPI = {
+  dashboard: () =>
+    api<{
+      greeting: string;
+      available: boolean;
+      nextJobAvailable: boolean;
+      todayJobs: number;
+      locked?: boolean;
+      activeJob?: { id: string; code: string; category: string; status: string; area?: string } | null;
+      target: WorkerTarget;
+      bestJob: WorkerJobCard | null;
+      nearbyCount: number;
+      recommended: WorkerJobCard[];
+      crew: { id: string; name: string; members: number; ratingAvg: number; completedJobs: number } | null;
+      passport: { verified: boolean; jobs: number; ratingAvg: number; badges: WorkerBadge[] };
+      festival?: { name: string; city: string; note: string } | null;
+    }>("/worker/dashboard"),
+  getTarget: () => api<{ target: WorkerTarget }>("/worker/daily-target"),
+  setTarget: (amount: number) =>
+    api<{ target: WorkerTarget }>("/worker/daily-target", { method: "PUT", body: JSON.stringify({ amount }) }),
+  history: () =>
+    api<{ history: Record<string, { amount: number; jobs: number }> }>("/worker/earnings/history"),
+  nearby: (sort = "recommended") =>
+    api<{
+      jobs: WorkerJobCard[];
+      remaining: number;
+      gps: boolean;
+      nextJobAvailable: boolean;
+      message?: string;
+      locked?: boolean;
+      activeJobId?: string;
+    }>(`/worker/nearby-jobs?sort=${encodeURIComponent(sort)}`),
+  recommended: () =>
+    api<{ best: WorkerJobCard | null; jobs: WorkerJobCard[]; remaining: number; target: number; earned: number }>(
+      "/worker/recommended-jobs"
+    ),
+  availability: (body: { available?: boolean; nextJobAvailable?: boolean }) =>
+    api<{ available: boolean; nextJobAvailable: boolean }>("/worker/availability", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  passport: () => api<{ passport: WorkerPassport }>("/worker/passport"),
+  updatePassport: (body: object) =>
+    api<{ passport: WorkerPassport }>("/worker/passport", { method: "PUT", body: JSON.stringify(body) }),
+  addSkill: (name: string) =>
+    api<{ skills: WorkerPassport["skills"] }>("/worker/skills", { method: "POST", body: JSON.stringify({ name }) }),
+  requestVerify: (id: string) =>
+    api<{ skill: { id: string; name: string; verified: boolean; pending: boolean } }>(`/worker/skills/${id}/verify`, {
+      method: "POST",
+    }),
+  badges: () => api<{ badges: WorkerBadge[] }>("/worker/badges"),
+  idleStatus: () =>
+    api<{
+      idle: boolean;
+      minutes: number;
+      estimateInr: number;
+      message: string;
+      nextJob: WorkerJobCard | null;
+    }>("/worker/idle-status"),
+};
+
+export const CrewAPI = {
+  mine: () => api<{ crews: WorkerCrew[] }>("/crews"),
+  browse: (q = "") => api<{ crews: WorkerCrew[] }>(`/crews?browse=true${q}`),
+  get: (id: string) => api<{ crew: WorkerCrew }>(`/crews/${id}`),
+  create: (body: object) => api<{ crew: WorkerCrew }>("/crews", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: string, body: object) => api<{ crew: WorkerCrew }>(`/crews/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  searchWorkers: (q: string) =>
+    api<{ workers: { id: string; name: string; userCode: string; category: string; verified: boolean; ratingAvg: number }[] }>(
+      `/crews/search-workers?q=${encodeURIComponent(q)}`
+    ),
+  invite: (id: string, userId: string) =>
+    api<{ crew: WorkerCrew }>(`/crews/${id}/invite`, { method: "POST", body: JSON.stringify({ userId }) }),
+  acceptInvite: (id: string, invitationId: string) =>
+    api<{ crew: WorkerCrew }>(`/crews/${id}/invitations/${invitationId}/accept`, { method: "POST" }),
+  rejectInvite: (id: string, invitationId: string) =>
+    api<{ crew: WorkerCrew }>(`/crews/${id}/invitations/${invitationId}/reject`, { method: "POST" }),
+  removeMember: (id: string, memberId: string) => api<{ crew: WorkerCrew }>(`/crews/${id}/members/${memberId}`, { method: "DELETE" }),
+  requestJob: (crewId: string, requestId: string, workersRequired?: number) =>
+    api<{ ok: boolean }>(`/crews/${crewId}/jobs`, { method: "POST", body: JSON.stringify({ requestId, workersRequired }) }),
+  acceptJob: (crewId: string, jobId: string, memberIds: string[], reject = false) =>
+    api<{ ok: boolean }>(`/crews/${crewId}/jobs/${jobId}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ memberIds, reject }),
+    }),
+  preview: (id: string, amount: number) =>
+    api<{ split: { gross: number; fee: number; net: number; commissionPercent: number; shares: { userId: string; role: string; amount: number }[] } }>(
+      `/crews/${id}/earnings-preview?amount=${amount}`
+    ),
+};
+
+export const SafetyAPI = {
+  create: (body: object) =>
+    api<{ incident: { id: string; type: string; status: string } }>("/safety/incidents", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  list: () => api<{ incidents: { id: string; type: string; status: string; description?: string; createdAt: string }[] }>("/safety/incidents"),
+  report: (body: object) => api<{ ok: boolean }>("/safety/report", { method: "POST", body: JSON.stringify(body) }),
+};
+
+export const PublicAPI = {
+  pro: (code: string) => api<{ profile: WorkerPassport }>(`/public/pro/${encodeURIComponent(code)}`),
+  watch: (token: string) =>
+    api<{
+      watch: {
+        category: string;
+        status: string;
+        area: string;
+        city: string;
+        etaMinutes: number | null;
+        delayReason: string;
+        delayText: string;
+        worker: { firstName: string; avatar: string; verified: boolean; rating: number } | null;
+        workerApprox: { lat: number | null; lng: number | null };
+        timeline: { status: string; note: string; at: string }[];
+        expiresAt: string;
+      };
+    }>(`/public/watch/${encodeURIComponent(token)}`),
+};
+
 export type TeamPayload = {
   id?: string;
   groups: { id: string; name: string }[];
@@ -277,6 +497,10 @@ export const AdminAPI = {
     api<{ user: AppUser }>(`/admin/users/${id}/license`, { method: "POST", body: JSON.stringify(body) }),
   revokeLicense: (id: string) => api<{ user: AppUser }>(`/admin/users/${id}/license/revoke`, { method: "POST" }),
   licenses: () => api<{ licenses: { id: string; userCode: string; name: string; email: string; role: string; license: UserLicense }[] }>("/admin/licenses"),
+  safety: () => api<{ incidents: { id: string; type: string; status: string; description: string; createdAt: string; workerId: string }[] }>("/admin/safety"),
+  patchSafety: (id: string, body: object) => api<{ incident: { id: string; status: string } }>(`/admin/safety/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  crews: () => api<{ crews: WorkerCrew[] }>("/admin/crews"),
+  patchCrew: (id: string, body: object) => api<{ crew: WorkerCrew }>(`/admin/crews/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export type AppUser = {
@@ -295,10 +519,12 @@ export type AppUser = {
   studies?: string;
   aadhaar?: string;
   pan?: string;
-  lang?: "en" | "ta";
+  lang?: "en" | "ta" | "hi";
   profileAsked?: boolean;
   lat?: number | null;
   lng?: number | null;
+  homeLat?: number | null;
+  homeLng?: number | null;
   lastSeenAt?: string | null;
   online?: boolean;
   status: string;
@@ -333,6 +559,11 @@ export type AppUser = {
     lat?: number | null;
     lng?: number | null;
     onboarded: boolean;
+    dailyTargetAmount?: number;
+    nextJobAvailable?: boolean;
+    languages?: string[];
+    passportBio?: string;
+    skills?: { id: string; name: string; verified: boolean; pending: boolean }[];
   } | null;
 };
 
@@ -380,6 +611,29 @@ export type JobRequest = {
   customer: { id: string; name: string; avatar?: string; phone?: string } | null;
   provider: Provider | null;
   matches?: Provider[];
+  crewId?: string | null;
+  crewMemberIds?: string[];
+  workersRequired?: number;
+  cancelReason?: string;
+  travelCompensation?: number;
+  crewMembers?: { id: string; name: string; avatar?: string; state: string }[];
+  acceptedAt?: string | null;
+  customerLanguage?: string;
+  workerLanguage?: string;
+  translatedDescription?: string;
+  workPhotos?: { before: string[]; during: string[]; after: string[] };
+  tower?: string;
+  flat?: string;
+  gateNote?: string;
+  visitorName?: string;
+  delayReason?: string;
+  delayNote?: string;
+  preferredProviderId?: string | null;
+  pinCode?: string;
+  cancelledAt?: string | null;
+  cancelledBy?: string;
+  watchActive?: boolean;
+  cancelPolicy?: { free: boolean; afterTravel: boolean; amount: number; title: string; text: string };
 };
 
 export type Provider = {
@@ -526,5 +780,9 @@ export type AdminSettings = {
   smtpPass?: string;
   smtpPassSet?: boolean;
   commissionPercent: number;
+  travelCompensationInr?: number;
+  festivalName?: string;
+  festivalCity?: string;
+  festivalNote?: string;
   platformName: string;
 };

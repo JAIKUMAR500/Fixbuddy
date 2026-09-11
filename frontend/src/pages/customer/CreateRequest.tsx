@@ -23,7 +23,7 @@ interface Props {
 }
 
 export default function CreateRequest({ navigate, onRequestData, requestData }: Props) {
-  const { setActiveRequestId, user } = useApp();
+  const { setActiveRequestId, user, selectedProvider } = useApp();
   const isBiz = isBusiness(user?.role);
   const [step, setStep] = useState(1);
   const [desc, setDesc] = useState(requestData.description || "");
@@ -36,6 +36,8 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
   const [customDate, setCustomDate] = useState("");
   const [customTime, setCustomTime] = useState("");
   const [amount, setAmount] = useState(String(requestData.estimatedAmount || ""));
+  const [workersRequired, setWorkersRequired] = useState(1);
+  const [needTeam, setNeedTeam] = useState(false);
   const [photos, setPhotos] = useState<string[]>(requestData.photos || []);
   const [voiceNote, setVoiceNote] = useState(requestData.voiceNote || "");
   const [preview, setPreview] = useState<string | null>(null);
@@ -46,12 +48,25 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
   const [categories, setCategories] = useState<{ name: string; icon: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [tower, setTower] = useState("");
+  const [flat, setFlat] = useState("");
+  const [gateNote, setGateNote] = useState("");
+  const [pinCode, setPinCode] = useState("");
+  const [priceBand, setPriceBand] = useState("");
 
   React.useEffect(() => {
     void CategoryAPI.list()
       .then((d) => setCategories(d.categories.map((c) => ({ name: c.name, icon: c.icon }))))
       .catch(() => setCategories([]));
   }, []);
+
+  React.useEffect(() => {
+    if (!category) return;
+    const q = `?category=${encodeURIComponent(category)}&city=${encodeURIComponent(city || user?.city || "")}&pinCode=${encodeURIComponent(pinCode)}`;
+    void RequestAPI.priceBand(q)
+      .then((d) => setPriceBand(d.text || ""))
+      .catch(() => setPriceBand(""));
+  }, [category, city, pinCode, user?.city]);
 
   const scheduledAt =
     timing === "custom" && customDate
@@ -90,15 +105,23 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
       estimatedAmount: Number(amount || 0),
       budgetMin: Number(amount || 0),
       budgetMax: Number(amount || 0),
+      workersRequired: needTeam ? Math.max(2, workersRequired) : 1,
       scheduledAt,
       scheduledLabel,
       publicPost: true,
+      tower,
+      flat,
+      gateNote,
+      pinCode,
+      customerLanguage: user?.lang || "en",
+      preferredProviderId: selectedProvider?.id || undefined,
     };
     onRequestData(data);
     try {
       const { request } = await RequestAPI.create(data);
       setActiveRequestId(request.id);
-      navigate("finding-solutions");
+      if (needTeam) navigate("find-crew");
+      else navigate("finding-solutions");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "We couldn't create your request");
     } finally {
@@ -303,6 +326,13 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                 <Input label="City" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
               </div>
               <Input label="Landmark (Optional)" placeholder="Nearby landmark" value={landmark} onChange={(e) => setLandmark(e.target.value)} />
+              <Input label="PIN code" inputMode="numeric" placeholder="641001" value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+              <p className="text-xs font-semibold text-slate-500">Apartment / society (optional)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Tower" placeholder="A" value={tower} onChange={(e) => setTower(e.target.value)} />
+                <Input label="Flat" placeholder="12B" value={flat} onChange={(e) => setFlat(e.target.value)} />
+              </div>
+              <Input label="Gate instructions" placeholder="Visitor name, gate code, parking" value={gateNote} onChange={(e) => setGateNote(e.target.value)} />
             </div>
           </div>
         )}
@@ -343,6 +373,12 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
+            {priceBand && <p className="text-sm text-slate-600 bg-slate-50 rounded-xl px-3 py-2">{priceBand}</p>}
+            {selectedProvider && (
+              <p className="text-sm text-emerald-800 bg-emerald-50 rounded-xl px-3 py-2">
+                Booking {selectedProvider.name} again. OTP, tracking and payment still apply.
+              </p>
+            )}
           </div>
         )}
 
@@ -380,6 +416,13 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                   ))}
                 </div>
               )}
+              <label className="flex items-center justify-between gap-3 pt-2">
+                <span className="text-sm font-medium text-slate-800">Need a team (2+ workers)</span>
+                <input type="checkbox" className="accent-brand w-5 h-5" checked={needTeam} onChange={(e) => setNeedTeam(e.target.checked)} />
+              </label>
+              {needTeam && (
+                <Input label="Workers required" type="number" min={2} max={12} value={String(workersRequired)} onChange={(e) => setWorkersRequired(Number(e.target.value || 2))} />
+              )}
             </Card>
           </div>
         )}
@@ -406,7 +449,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
               (step === 4 && timing === "custom" && !customDate)
             }
           >
-            {step === 5 ? "Find nearby workers" : "Continue"}
+            {step === 5 ? (needTeam ? "Find a team" : "Find nearby workers") : "Continue"}
             {step !== 5 && <ArrowRight className="w-5 h-5" />}
             {step === 5 && <IndianRupee className="w-5 h-5" />}
           </Button>

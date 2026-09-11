@@ -162,12 +162,14 @@ router.patch(
       ...(avatar != null ? { avatar } : {}),
       ...(lat != null ? { lat: Number(lat) } : {}),
       ...(lng != null ? { lng: Number(lng) } : {}),
+      ...(req.body.homeLat != null ? { homeLat: Number(req.body.homeLat) } : {}),
+      ...(req.body.homeLng != null ? { homeLng: Number(req.body.homeLng) } : {}),
       ...(age != null && age !== "" ? { age: Number(age) } : {}),
       ...(jobType != null ? { jobType } : {}),
       ...(studies != null ? { studies } : {}),
       ...(aadhaar != null ? { aadhaar } : {}),
       ...(pan != null ? { pan } : {}),
-      ...(lang === "en" || lang === "ta" ? { lang } : {}),
+      ...(lang === "en" || lang === "ta" || lang === "hi" ? { lang } : {}),
       ...(profileAsked != null ? { profileAsked: !!profileAsked } : {}),
     };
     if (name != null && req.user.provider) set["provider.businessName"] = name;
