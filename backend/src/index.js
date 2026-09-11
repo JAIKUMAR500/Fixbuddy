@@ -22,6 +22,8 @@ import statsRoutes from "./routes/stats.js";
 import categoryRoutes from "./routes/categories.js";
 import uploadRoutes, { uploadDir } from "./routes/upload.js";
 import teamRoutes from "./routes/team.js";
+import workerRoutes, { publicWorkerRoutes } from "./routes/worker.js";
+import teamJobRoutes from "./routes/teamJobs.js";
 import { startCron } from "./jobs/cron.js";
 import { cacheGet, cacheSet } from "./utils/cache.js";
 
@@ -98,6 +100,8 @@ app.get("/api/public/stats", async (_req, res) => {
   res.json(payload);
 });
 
+app.use("/api/workers", publicWorkerRoutes);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/providers", auth, providerRoutes);
 app.use("/api/requests", auth, requestRoutes);
@@ -109,6 +113,8 @@ app.use("/api/stats", auth, statsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/upload", auth, uploadRoutes);
 app.use("/api/team", auth, teamRoutes);
+app.use("/api/worker", auth, workerRoutes);
+app.use("/api/team-jobs", auth, teamJobRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

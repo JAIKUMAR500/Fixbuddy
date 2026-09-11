@@ -39,6 +39,7 @@ export type View =
   | "ai-recommend"
   | "worker-license"
   | "worker-wallet"
+  | "worker-passport"
   | "admin"
   | "admin-login"
   | "admin-customers"

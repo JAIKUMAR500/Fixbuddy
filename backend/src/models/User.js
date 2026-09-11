@@ -44,6 +44,18 @@ const providerSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const notificationPreferencesSchema = new mongoose.Schema(
+  {
+    inApp: { type: Boolean, default: true },
+    browser: { type: Boolean, default: true },
+    email: { type: Boolean, default: true },
+    jobUpdates: { type: Boolean, default: true },
+    paymentUpdates: { type: Boolean, default: true },
+    marketing: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -74,6 +86,7 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ["active", "suspended"], default: "active", index: true },
     userCode: { type: String, unique: true, sparse: true, index: true },
     walletBalance: { type: Number, default: 0 },
+    notificationPreferences: { type: notificationPreferencesSchema, default: () => ({}) },
     license: {
       key: { type: String, default: "" },
       plan: { type: String, default: "none" },

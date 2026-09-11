@@ -7,7 +7,7 @@ const transactionSchema = new mongoose.Schema(
     fromId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     toId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     amount: { type: Number, required: true },
-    kind: { type: String, enum: ["payment", "payout", "refund", "commission"], default: "payment" },
+    kind: { type: String, enum: ["payment", "payout", "refund", "commission", "compensation"], default: "payment" },
     status: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "paid", index: true },
     note: { type: String, default: "" },
   },

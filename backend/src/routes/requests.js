@@ -4,6 +4,8 @@ import { Request } from "../models/Request.js";
 import { User } from "../models/User.js";
 import { Review } from "../models/Review.js";
 import { Transaction } from "../models/Transaction.js";
+import { Cancellation } from "../models/Cancellation.js";
+import { getSettings } from "../models/PlatformSettings.js";
 import { matchProviders } from "../services/match.js";
 import { notify, notifyMany } from "../services/notify.js";
 import { ensureConversation } from "../services/chat.js";
@@ -580,11 +582,24 @@ router.post(
     if (!doc) throw httpError(404, "Request not found");
     const isOwner = String(doc.customerId) === req.userId || String(doc.providerId) === req.userId;
     if (!isOwner && !isAdmin(req.user.role)) throw httpError(403, "Not allowed");
-    if (["completed", "payment_collected", "customer_completed", "reviewed"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
-    pushTimeline(doc, "cancelled", req.body.reason || "Cancelled");
+    if (["completed", "payment_collected", "customer_completed", "reviewed", "cancelled"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
+    const settings = await getSettings();
+    const policy = settings.cancellationPolicy || {};
+    const customerCancelled = String(doc.customerId) === req.userId;
+    const travelEvent = [...(doc.timeline || [])].reverse().find((item) => item.status === "on_the_way");
+    const travelStartedAt = travelEvent?.at ? new Date(travelEvent.at).getTime() : 0;
+    const travelled = ["on_the_way", "arrived", "otp_verified", "in_progress"].includes(doc.status) && travelStartedAt > 0 && Date.now() - travelStartedAt >= Number(policy.workerTravelAfterMinutes || 0) * 60 * 1000;
+    const eligible = customerCancelled && !!doc.providerId && travelled && policy.customerCancelAfterAccept !== false;
+    const amount = eligible ? Number(policy.workerTravelCompensation || 0) : 0;
+    const cancellation = await Cancellation.create({ requestId: doc._id, actorId: req.userId, actorRole: req.user.role, reason: String(req.body.reason || "other").slice(0, 120), eligible, amount, status: eligible && amount > 0 ? "paid" : "not_eligible", policyVersion: policy.version || "v1" });
+    pushTimeline(doc, "cancelled", `${req.body.reason || "Cancelled"}${eligible ? ` · Worker compensation ₹${amount}` : ""}`);
     await doc.save();
+    if (eligible && amount > 0) {
+      await Transaction.create({ code: `CMP-${cancellation._id}`, requestId: doc._id, fromId: doc.customerId, toId: doc.providerId, amount, kind: "payout", status: "paid", note: "Customer cancellation travel compensation" });
+      await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
+    }
     const other = String(doc.customerId) === req.userId ? doc.providerId : doc.customerId;
-    await notify(other, { type: "info", text: "A job was cancelled", requestId: doc._id });
+    await notify(other, { type: eligible ? "success" : "info", text: eligible ? `Job cancelled. Worker travel compensation ₹${amount} was recorded.` : "A job was cancelled", requestId: doc._id });
     const extras = await loadPeople(doc.toObject());
     res.json({ request: presentRequest(doc, extras) });
   })

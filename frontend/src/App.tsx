@@ -39,6 +39,8 @@ import { FavoritesPage, LicensePage, LiveAnalytics, LiveWallet, SupportPage } fr
 import AccountSettings from "./pages/shared/AccountSettings";
 import AiRecommend from "./pages/shared/AiRecommend";
 import TeamPage from "./pages/business/TeamPage";
+import WorkerPassportPage from "./pages/business/WorkerPassport";
+import PublicWorkerProfile from "./pages/PublicWorkerProfile";
 
 class RouteErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -154,6 +156,8 @@ function Shell() {
         {view === "provider-settings" && <AccountSettings />}
         {view === "worker-license" && <LicensePage />}
         {view === "worker-wallet" && <LiveWallet />}
+        {view === "worker-passport" && <WorkerPassportPage />}
+        {view === "business-team" && <TeamPage />}
         {view === "ai-recommend" && <AiRecommend />}
       </>
     );
@@ -179,7 +183,6 @@ function Shell() {
         {view === "business-analytics" && <LiveAnalytics />}
         {view === "business-license" && <LicensePage />}
         {view === "business-wallet" && <LiveWallet />}
-        {view === "business-team" && <TeamPage />}
         {view === "ai-recommend" && <AiRecommend />}
       </>
     );
@@ -197,11 +200,21 @@ function Shell() {
   return <Landing navigate={navigate} />;
 }
 
+function PublicProfileEntry() {
+  const workerId = window.location.pathname.split("/").filter(Boolean)[1] || "";
+  return <PublicWorkerProfile workerId={workerId} />;
+}
+
+function Root() {
+  if (window.location.pathname.startsWith("/workers/")) return <PublicProfileEntry />;
+  return <Shell />;
+}
+
 export default function App() {
   return (
     <LangProvider>
       <AppProvider>
-        <Shell />
+        <Root />
       </AppProvider>
     </LangProvider>
   );

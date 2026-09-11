@@ -132,8 +132,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     let initialized = false;
     let seen = new Set<string>();
+    let browserEnabled = true;
     const announce = (notification: AppNotif) => {
       window.dispatchEvent(new CustomEvent("fixbuddy:notification", { detail: notification }));
+      if (!browserEnabled) return;
       try {
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
@@ -158,6 +160,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     const poll = async () => {
       try {
+        const preferenceResult = await NotifAPI.preferences();
+        browserEnabled = preferenceResult.preferences.browser !== false;
         const result = await NotifAPI.list();
         setUnreadNotifications(result.unread);
         const current = new Set(result.notifications.map((item) => item.id));

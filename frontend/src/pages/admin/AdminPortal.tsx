@@ -110,6 +110,7 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
   const [adminMsg, setAdminMsg] = useState("");
   const [pendingMail, setPendingMail] = useState(0);
   const [mailMsg, setMailMsg] = useState("");
+  const [skillRows, setSkillRows] = useState<{ id: string; workerId: string; worker: string; email: string; name: string; level: string }[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -154,6 +155,7 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
       if (view === "admin" || view === "admin-analytics") setAnalytics(await AdminAPI.analytics());
       if (view === "admin-licenses") setLicenseRows((await AdminAPI.licenses()).licenses);
       if (view === "admin-notifications") setNotifs((await AdminAPI.notifications()).notifications);
+      if (view === "admin-verification") setSkillRows((await AdminAPI.skillVerification()).skills);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load admin data");
     } finally {
@@ -280,6 +282,7 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
                 showVerify={view !== "admin-customers"}
               />
             </Card>
+            {view === "admin-verification" && <Card padding="md" className="mt-5"><h2 className="font-semibold text-slate-900 mb-3">Pending skill verification</h2>{skillRows.length === 0 ? <p className="text-sm text-slate-500">No skill requests waiting.</p> : <div className="space-y-2">{skillRows.map((skill) => <div key={skill.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-3 py-3"><div className="flex-1 min-w-[180px]"><p className="font-semibold text-sm text-slate-900">{skill.name} · {skill.level}</p><p className="text-xs text-slate-500">{skill.worker} · {skill.email}</p></div><Button size="sm" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "verified" }).then(() => load())}>Approve</Button><Button size="sm" variant="outline" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "rejected" }).then(() => load())}>Reject</Button></div>)}</div>}</Card>}
           </>
         )
       )}
@@ -697,6 +700,13 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
             </p>
             <Input label="Commission %" type="number" value={settings.commissionPercent} onChange={(e) => setSettings({ ...settings, commissionPercent: Number(e.target.value) })} />
             <Button onClick={() => void AdminAPI.patchSettings({ ...settings, smtpPass: settings.smtpPass || undefined }).then((r) => { setSettings(r.settings); setPendingMail(r.pendingMail || 0); })}>Save settings</Button>
+            <div className="border-t border-slate-200 pt-4 space-y-3">
+              <h3 className="font-semibold text-slate-900">Worker cancellation compensation</h3>
+              <p className="text-xs text-slate-500">Applied only when a customer cancels after the worker starts travelling.</p>
+              <Input label="Travel compensation ₹" type="number" min="0" value={String(settings.cancellationPolicy?.workerTravelCompensation ?? 75)} onChange={(e) => setSettings({ ...settings, cancellationPolicy: { ...settings.cancellationPolicy, workerTravelCompensation: Number(e.target.value) } })} />
+              <Input label="Travel started after minutes" type="number" min="0" value={String(settings.cancellationPolicy?.workerTravelAfterMinutes ?? 5)} onChange={(e) => setSettings({ ...settings, cancellationPolicy: { ...settings.cancellationPolicy, workerTravelAfterMinutes: Number(e.target.value) } })} />
+              <Button variant="outline" onClick={() => void AdminAPI.patchSettings({ cancellationPolicy: settings.cancellationPolicy }).then((r) => setSettings(r.settings))}>Save compensation policy</Button>
+            </div>
           </Card>
           <Card className="space-y-4">
             <h2 className="font-semibold">Gmail / OTP mail</h2>

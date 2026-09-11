@@ -7,6 +7,9 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "npm --prefix backend run dev",
     "build": "npm --prefix frontend run build",
-    "seed": "npm --prefix backend run seed"
+    "seed": "npm --prefix backend run seed",
+    "test": "npm --prefix backend test",
+    "test:backend": "npm --prefix backend test",
+    "typecheck": "cd frontend && npx tsc --noEmit"
   }
 }

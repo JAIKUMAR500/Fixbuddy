@@ -42,6 +42,14 @@ The project currently builds successfully, and all backend JavaScript files pass
 - Google Business sign-in recognizes both `business` and legacy `provider` accounts.
 - Expired sessions now return a clear session-expired message instead of being reported as invalid credentials.
 - Password-reset UI no longer displays OTP values in the browser.
+- Added additive worker APIs for daily targets, recommended jobs, earnings history, safety incidents, and professional passports.
+- Added worker dashboard panels for target progress, next-job recommendations, passport summary, and safety assistance.
+- Extended the existing team route for worker-owned teams and added worker passport navigation.
+- Improved Google sign-in rendering with a frontend client-ID fallback and responsive container.
+- Added transactional team-job creation, member assignment/location tracking, and authorization.
+- Added configurable cancellation compensation with an admin-managed amount and travel-duration threshold.
+- Added derived passport badges, public worker passport pages, QR links, and admin skill verification.
+- Added persisted notification preferences and a backend worker-power regression test script.
 
 Payment idempotency, upload hardening, location privacy, URL routing, and automated tests remain follow-up work described below.
 

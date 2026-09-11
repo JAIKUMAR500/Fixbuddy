@@ -102,6 +102,8 @@ const WORKER_VIEWS: View[] = [
   "provider-settings",
   "worker-license",
   "worker-wallet",
+  "worker-passport",
+  "business-team",
   "ai-recommend",
 ];
 

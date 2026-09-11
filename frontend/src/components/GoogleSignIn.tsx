@@ -19,7 +19,7 @@ export default function GoogleSignIn({
   onCredential: (credential: string) => void;
   label?: string;
 }) {
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -28,8 +28,8 @@ export default function GoogleSignIn({
 
   useEffect(() => {
     api<{ googleClientId?: string }>("/public/config")
-      .then((d) => setClientId(String(d.googleClientId || "").trim()))
-      .catch(() => setClientId(""))
+    .then((d) => setClientId(String(d.googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim()))
+      .catch(() => setClientId(String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim()))
       .finally(() => setLoading(false));
   }, []);
 
@@ -102,7 +102,7 @@ export default function GoogleSignIn({
           Add a Google Web Client ID in Super Admin → Settings (and Authorized JavaScript origins in Google Cloud).
         </p>
       ) : (
-        <div ref={hostRef} className="w-full min-h-12 flex justify-center overflow-hidden [&>div]:w-full" />
+        <div ref={hostRef} className="w-full min-h-12 flex justify-center overflow-x-auto [&>div]:max-w-full" />
       )}
       {error && <p className="text-xs text-red-600 mt-2 text-center">{error}</p>}
     </div>

@@ -15,6 +15,7 @@ import { JobProgress } from "../../components/JobProgress";
 import { useApp, useFetch } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
 import { mediaUrl, type JobRequest } from "../../api/client";
+import WorkerPowerPanel from "../../components/WorkerPowerPanel";
 
 export default function BusinessDashboard({ navigate }: { navigate: (v: View) => void }) {
   const { user } = useApp();
@@ -99,6 +100,8 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
           View details <ArrowRight className="w-3 h-3" />
         </button>
       </Card>
+
+      {worker && <WorkerPowerPanel navigate={navigate} />}
 
       <div>
         <SectionHeader

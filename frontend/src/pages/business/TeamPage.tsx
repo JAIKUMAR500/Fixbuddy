@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Trash2, Users } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Input } from "../../components/ui";
 import { TeamAPI, type TeamPayload } from "../../api/client";
 import { useLang } from "../../i18n/LangContext";
+import { useApp } from "../../api/AppContext";
 
 const empty: TeamPayload = { groups: [], members: [] };
 

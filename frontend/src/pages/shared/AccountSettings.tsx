@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Bell, Globe, Lock, MapPin, Shield, User, Loader2, Camera, LogOut } from "lucide-react";
 import { Button, Card, Input, Textarea, SafeImg } from "../../components/ui";
 import { useApp } from "../../api/AppContext";
-import { AuthAPI, uploadImage } from "../../api/client";
+import { AuthAPI, NotifAPI, uploadImage } from "../../api/client";
 import { capturePlace } from "../../api/geo";
 import { UserIdCard } from "./AccountModules";
 import { useLang } from "../../i18n/LangContext";
@@ -25,7 +25,25 @@ export default function AccountSettings() {
   const [error, setError] = useState("");
   const [alerts, setAlerts] = useState(true);
   const [sms, setSms] = useState(true);
+  const [browser, setBrowser] = useState(true);
   const photoRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    void NotifAPI.preferences().then(({ preferences }) => {
+      setAlerts(preferences.jobUpdates !== false);
+      setSms(preferences.email !== false);
+      setBrowser(preferences.browser !== false);
+    }).catch(() => { });
+  }, []);
+
+  const saveNotificationPreferences = async (next: { jobUpdates?: boolean; email?: boolean; browser?: boolean }) => {
+    try {
+      await NotifAPI.savePreferences(next);
+      setMsg("Notification preferences saved");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save notification preferences");
+    }
+  };
 
   const changePhoto = async (file?: File) => {
     if (!file) return;
@@ -164,7 +182,7 @@ export default function AccountSettings() {
               type="button"
               onClick={() => {
                 setLang(l);
-                void AuthAPI.updateMe({ lang: l }).then((d) => setUser(d.user)).catch(() => {});
+                void AuthAPI.updateMe({ lang: l }).then((d) => setUser(d.user)).catch(() => { });
               }}
               className={`min-h-12 rounded-xl border text-sm font-semibold ${lang === l ? "bg-brand text-white border-brand" : "bg-white border-slate-200 text-slate-700"}`}
             >
@@ -178,11 +196,15 @@ export default function AccountSettings() {
         <h2 className="font-semibold flex items-center gap-2"><Bell className="w-4 h-4 text-brand" /> Notifications</h2>
         <label className="flex items-center justify-between text-sm min-h-12">
           Job and chat alerts
-          <input type="checkbox" checked={alerts} onChange={(e) => setAlerts(e.target.checked)} className="w-5 h-5 accent-brand" />
+          <input type="checkbox" checked={alerts} onChange={(e) => { setAlerts(e.target.checked); void saveNotificationPreferences({ jobUpdates: e.target.checked }); }} className="w-5 h-5 accent-brand" />
         </label>
         <label className="flex items-center justify-between text-sm min-h-12">
           SMS updates
-          <input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} className="w-5 h-5 accent-brand" />
+          <input type="checkbox" checked={sms} onChange={(e) => { setSms(e.target.checked); void saveNotificationPreferences({ email: e.target.checked }); }} className="w-5 h-5 accent-brand" />
+        </label>
+        <label className="flex items-center justify-between text-sm min-h-12">
+          Browser alerts and sound
+          <input type="checkbox" checked={browser} onChange={(e) => { setBrowser(e.target.checked); void saveNotificationPreferences({ browser: e.target.checked }); }} className="w-5 h-5 accent-brand" />
         </label>
       </Card>
 

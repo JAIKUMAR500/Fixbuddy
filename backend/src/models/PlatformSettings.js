@@ -13,6 +13,12 @@ const settingsSchema = new mongoose.Schema(
     smtpUser: { type: String, default: "" },
     smtpPass: { type: String, default: "" },
     commissionPercent: { type: Number, default: 10 },
+    cancellationPolicy: {
+      version: { type: String, default: "v1" },
+      workerTravelCompensation: { type: Number, default: 75, min: 0 },
+      workerTravelAfterMinutes: { type: Number, default: 5, min: 0 },
+      customerCancelAfterAccept: { type: Boolean, default: true },
+    },
     platformName: { type: String, default: "FixBuddy" },
   },
   { timestamps: true }

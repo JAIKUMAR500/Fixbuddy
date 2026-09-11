@@ -18,6 +18,29 @@
 - Expired JWT sessions return a clear session-expired message instead of an invalid-credentials message.
 - Login UI clearly labels the selected account type and password reset no longer displays OTPs.
 
+## Worker Power System Added
+
+- Added worker daily income target storage and progress API.
+- Added nearby/recommended open-job API using the worker's saved location, category, distance, urgency, and estimated amount.
+- Added worker professional passport storage and editable frontend screen.
+- Added worker safety incident storage and emergency assistance action.
+- Extended the existing team surface so worker accounts can own and manage a team without creating a duplicate team architecture.
+- Added a worker dashboard panel for target progress, next-job suggestions, passport summary, and safety assistance.
+- Improved Google sign-in rendering with `VITE_GOOGLE_CLIENT_ID` fallback and a responsive container.
+
+At the start of this implementation pass, the following capabilities were not complete: verified online payments, atomic team-job assignment and team tracking, configurable cancellation compensation, skill/admin verification workflows, derived badges/QR public profiles, push/WebSocket notifications, and automated worker end-to-end tests.
+
+## Remaining Features Implemented In This Pass
+
+- Added transactional team-job creation, leader assignment, member authorization, and per-member location updates.
+- Added configurable worker travel-compensation policy in Admin settings and applied the configured amount/time threshold to customer cancellations.
+- Added derived professional badges and a public worker passport page suitable for QR links.
+- Added worker skill verification requests plus an admin pending-skill approval/rejection queue.
+- Added persisted notification preferences for job updates, email, and browser alerts.
+- Added worker-power regression tests and root `test`, `test:backend`, and `typecheck` scripts.
+
+Still required for a complete production rollout: MongoDB replica-set/Atlas transaction testing, payment-provider webhook verification, full team customer-selection UI, push/WebSocket delivery, comprehensive API integration tests, and Playwright mobile end-to-end tests.
+
 ## Delivery Rules
 
 - Complete each phase in order.

@@ -211,6 +211,8 @@ export const ChatAPI = {
 export const NotifAPI = {
   list: () => api<{ unread: number; notifications: AppNotif[] }>("/notifications"),
   read: (ids?: string[]) => api("/notifications/read", { method: "POST", body: JSON.stringify({ ids }) }),
+  preferences: () => api<{ preferences: Record<string, boolean> }>("/notifications/preferences"),
+  savePreferences: (body: object) => api<{ preferences: Record<string, boolean> }>("/notifications/preferences", { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export const ReviewAPI = {
@@ -240,6 +242,34 @@ export const TeamAPI = {
   addMember: (body: object) => api<{ team: TeamPayload }>("/team/members", { method: "POST", body: JSON.stringify(body) }),
   patchMember: (id: string, body: object) => api<{ team: TeamPayload }>(`/team/members/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   removeMember: (id: string) => api<{ team: TeamPayload }>(`/team/members/${id}`, { method: "DELETE" }),
+};
+
+export type WorkerTarget = { amount: number; date: string; earned: number; remaining: number; progress: number; achieved: boolean };
+export type WorkerJobSuggestion = { id: string; code: string; category: string; description: string; amount: number; distanceKm: number | null; etaMinutes: number | null; area: string; city: string; timing: string; urgent: number; score: number };
+export type WorkerPassport = {
+  worker: { id: string; name: string; avatar: string; city: string; role: string };
+  passport: { bio: string; experienceYears: number; languages: string[]; serviceAreas: string[]; skills: { id: string; name: string; level: string; verified: boolean; verificationStatus?: string }[] };
+  stats: { totalJobs: number; paidJobs: number; totalEarnings: number; todayEarnings: number; rating: number; verified: boolean };
+  badges?: string[];
+  publicProfileUrl?: string;
+};
+
+export const WorkerAPI = {
+  target: () => api<{ target: WorkerTarget }>("/worker/daily-target"),
+  saveTarget: (amount: number) => api<{ target: WorkerTarget }>("/worker/daily-target", { method: "PUT", body: JSON.stringify({ amount }) }),
+  earnings: () => api<{ earnings: { id: string; code: string; category: string; amount: number; paidAt: string | null; status: string }[] }>("/worker/earnings/history"),
+  nearbyJobs: () => api<{ jobs: WorkerJobSuggestion[] }>("/worker/recommended-jobs"),
+  passport: () => api<{ passport: WorkerPassport }>("/worker/passport"),
+  savePassport: (body: object) => api<{ passport: WorkerPassport }>("/worker/passport", { method: "PUT", body: JSON.stringify(body) }),
+  safety: (body: object) => api<{ incident: { id: string; type: string; status: string; createdAt: string } }>("/worker/safety/incidents", { method: "POST", body: JSON.stringify(body) }),
+  requestSkillVerification: (id: string) => api<{ ok: boolean; status: string }>(`/worker/skills/${id}/verify`, { method: "POST" }),
+};
+
+export const TeamJobAPI = {
+  create: (body: { requestId: string; teamId: string }) => api<{ teamJob: unknown }>("/team-jobs", { method: "POST", body: JSON.stringify(body) }),
+  get: (id: string) => api<{ teamJob: unknown }>(`/team-jobs/${id}`),
+  assign: (id: string, memberId: string) => api<{ teamJob: unknown }>(`/team-jobs/${id}/assign`, { method: "POST", body: JSON.stringify({ memberId }) }),
+  location: (id: string, lat: number, lng: number) => api<{ teamJob: unknown }>(`/team-jobs/${id}/location`, { method: "PATCH", body: JSON.stringify({ lat, lng }) }),
 };
 
 export type TeamPayload = {
@@ -277,6 +307,8 @@ export const AdminAPI = {
     api<{ user: AppUser }>(`/admin/users/${id}/license`, { method: "POST", body: JSON.stringify(body) }),
   revokeLicense: (id: string) => api<{ user: AppUser }>(`/admin/users/${id}/license/revoke`, { method: "POST" }),
   licenses: () => api<{ licenses: { id: string; userCode: string; name: string; email: string; role: string; license: UserLicense }[] }>("/admin/licenses"),
+  skillVerification: () => api<{ skills: { id: string; workerId: string; worker: string; email: string; name: string; level: string; requestedAt: string }[] }>("/admin/skill-verification"),
+  reviewSkill: (workerId: string, skillId: string, body: object) => api<{ ok: boolean; status: string }>(`/admin/skill-verification/${workerId}/${skillId}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export type AppUser = {
@@ -527,4 +559,5 @@ export type AdminSettings = {
   smtpPassSet?: boolean;
   commissionPercent: number;
   platformName: string;
+  cancellationPolicy?: { version?: string; workerTravelCompensation?: number; workerTravelAfterMinutes?: number; customerCancelAfterAccept?: boolean };
 };

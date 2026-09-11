@@ -17,6 +17,7 @@ import { publicUser, presentRequest } from "../utils/serialize.js";
 import { logAudit } from "../utils/audit.js";
 import { notifyMany } from "../services/notify.js";
 import { buildLicense, licenseView, createUserWithCode } from "../utils/license.js";
+import { WorkerPassport } from "../models/WorkerPassport.js";
 
 const router = Router();
 router.use(requireRole("admin"));
@@ -226,6 +227,33 @@ router.get(
 );
 
 router.get(
+  "/skill-verification",
+  asyncHandler(async (_req, res) => {
+    const rows = await WorkerPassport.find({ "skills.verificationStatus": "pending" }).populate("workerId", "name email userCode").lean();
+    res.json({ skills: rows.flatMap((row) => (row.skills || []).filter((skill) => skill.verificationStatus === "pending").map((skill) => ({ id: String(skill._id), workerId: String(row.workerId?._id || row.workerId), worker: row.workerId?.name || "Worker", email: row.workerId?.email || "", name: skill.name, level: skill.level, requestedAt: skill.verificationRequestedAt }))) });
+  })
+);
+
+router.patch(
+  "/skill-verification/:workerId/:skillId",
+  asyncHandler(async (req, res) => {
+    const status = ["verified", "rejected", "pending", "unverified"].includes(req.body.status) ? req.body.status : "rejected";
+    const passport = await WorkerPassport.findOne({ workerId: req.params.workerId });
+    const skill = passport?.skills.id(req.params.skillId);
+    if (!skill) throw httpError(404, "Skill not found");
+    skill.verificationStatus = status;
+    skill.verified = status === "verified";
+    skill.verifiedBy = status === "verified" ? req.userId : null;
+    skill.verifiedAt = status === "verified" ? new Date() : null;
+    skill.verificationNote = String(req.body.note || "").slice(0, 300);
+    await passport.save();
+    await logAudit(req, `${status} worker skill`, `${skill.name} · ${req.params.workerId}`);
+    await notifyMany([passport.workerId], { type: status === "verified" ? "success" : "info", text: `${skill.name} skill verification is ${status}.` });
+    res.json({ ok: true, status });
+  })
+);
+
+router.get(
   "/requests",
   asyncHandler(async (req, res) => {
     const filter = {};
@@ -403,6 +431,7 @@ function presentSettings(doc) {
     smtpPassSet: Boolean(o.smtpPass),
     commissionPercent: o.commissionPercent,
     platformName: o.platformName,
+    cancellationPolicy: o.cancellationPolicy || {},
   };
 }
 
@@ -432,6 +461,9 @@ router.patch(
     ];
     for (const k of keys) {
       if (req.body[k] !== undefined) doc[k] = req.body[k];
+    }
+    if (req.body.cancellationPolicy && typeof req.body.cancellationPolicy === "object") {
+      doc.cancellationPolicy = { ...doc.cancellationPolicy?.toObject?.(), ...req.body.cancellationPolicy };
     }
     const nextPass = String(req.body.smtpPass || "").trim();
     if (nextPass && nextPass !== "********") doc.smtpPass = nextPass;

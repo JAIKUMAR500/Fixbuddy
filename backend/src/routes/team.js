@@ -24,6 +24,10 @@ function present(team) {
   };
 }
 
+function canManageTeam(role) {
+  return isBusiness(role) || role === "worker" || role === "admin";
+}
+
 async function loadTeam(ownerId) {
   let team = await Team.findOne({ ownerId });
   if (!team) team = await Team.create({ ownerId, groups: [], members: [] });
@@ -33,7 +37,7 @@ async function loadTeam(ownerId) {
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const team = await loadTeam(req.userId);
     res.json({ team: present(team) });
   })
@@ -42,7 +46,7 @@ router.get(
 router.post(
   "/groups",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const name = String(req.body.name || "").trim();
     if (!name) throw httpError(400, "Group name is required");
     const team = await loadTeam(req.userId);
@@ -55,7 +59,7 @@ router.post(
 router.patch(
   "/groups/:id",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const team = await loadTeam(req.userId);
     const group = team.groups.id(req.params.id);
     if (!group) throw httpError(404, "Group not found");
@@ -68,7 +72,7 @@ router.patch(
 router.delete(
   "/groups/:id",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const team = await loadTeam(req.userId);
     team.members.forEach((m) => {
       if (m.groupId === req.params.id) m.groupId = "";
@@ -82,7 +86,7 @@ router.delete(
 router.post(
   "/members",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const { name, email, phone, role, groupId } = req.body || {};
     if (!String(name || "").trim()) throw httpError(400, "Member name is required");
     const team = await loadTeam(req.userId);
@@ -112,7 +116,7 @@ router.post(
 router.patch(
   "/members/:id",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const team = await loadTeam(req.userId);
     const member = team.members.id(req.params.id);
     if (!member) throw httpError(404, "Member not found");
@@ -131,7 +135,7 @@ router.patch(
 router.delete(
   "/members/:id",
   asyncHandler(async (req, res) => {
-    if (!isBusiness(req.user.role) && req.user.role !== "admin") throw httpError(403, "Business accounts only");
+    if (!canManageTeam(req.user.role)) throw httpError(403, "Business or worker accounts only");
     const team = await loadTeam(req.userId);
     team.members.pull(req.params.id);
     await team.save();
