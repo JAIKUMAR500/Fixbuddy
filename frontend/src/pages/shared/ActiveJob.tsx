@@ -13,11 +13,13 @@ import { View } from "../../types";
 import { Button, Card } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import TrackMap from "../../components/TrackMap";
+import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, WorkerAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
-import { jobError, isEngagedStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
+import { canCancelJob, jobError, isEngagedStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
 import { startCall } from "../../api/phone";
+import { mapsNavUrl, openMapsNav } from "../../api/geo";
 import { useLang } from "../../i18n/LangContext";
 
 function cacheJob(job: JobRequest) {
@@ -160,9 +162,12 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   };
 
   const mapsUrl = useMemo(() => {
-    if (!job?.lat || !job?.lng) return "";
-    return `https://www.google.com/maps/dir/?api=1&destination=${job.lat},${job.lng}`;
-  }, [job?.lat, job?.lng]);
+    if (job?.lat == null || job?.lng == null) return "";
+    return mapsNavUrl(
+      { lat: job.lat, lng: job.lng },
+      job.workerLat != null && job.workerLng != null ? { lat: job.workerLat, lng: job.workerLng } : null
+    );
+  }, [job?.lat, job?.lng, job?.workerLat, job?.workerLng]);
 
   if (!job) {
     return (
@@ -276,11 +281,28 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       <JobProgress status={job.status} />
 
       {(job.lat || job.workerLat) && isEngagedStatus(job.status) && (
-        <TrackMap
-          className="h-48 rounded-2xl overflow-hidden border border-slate-200"
-          customer={{ lat: job.lat, lng: job.lng }}
-          worker={{ lat: job.workerLat, lng: job.workerLng }}
-        />
+        <div className="space-y-2">
+          <TrackMap
+            customer={{ lat: job.lat, lng: job.lng }}
+            worker={{ lat: job.workerLat, lng: job.workerLng }}
+            navigateTo={
+              worker
+                ? { lat: job.lat, lng: job.lng }
+                : { lat: job.workerLat ?? job.lat, lng: job.workerLng ?? job.lng }
+            }
+            origin={
+              worker
+                ? { lat: job.workerLat, lng: job.workerLng }
+                : { lat: job.lat, lng: job.lng }
+            }
+            tapHint={worker ? "Open customer location in Google Maps" : "Open worker location in Google Maps"}
+          />
+          <p className="text-xs text-slate-500 px-1">
+            {worker
+              ? "Opens Google Maps in a new tab. Drive there, then come back and tap Arrived."
+              : "Opens Google Maps in a new tab so you can see where your worker is."}
+          </p>
+        </div>
       )}
 
       <Card padding="md" className="space-y-2">
@@ -369,8 +391,18 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       )}
 
       {worker && action === "enroute" && (
-        <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("enroute", async () => RequestAPI.enroute(job.id, await loc()))}>
-          {t("job.onTheWay")}
+        <Button
+          className="w-full min-h-14 text-lg"
+          disabled={!!busy}
+          onClick={() =>
+            void run("enroute", async () => {
+              const here = await loc();
+              await RequestAPI.enroute(job.id, here);
+              if (job.lat != null && job.lng != null) openMapsNav({ lat: job.lat, lng: job.lng }, here);
+            })
+          }
+        >
+          <Navigation className="w-5 h-5" /> {t("job.onTheWay")}
         </Button>
       )}
       {worker && action === "arrive" && (
@@ -394,9 +426,18 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </Button>
       )}
 
+      {canCancelJob(job.status) && (
+        <CancelJobPanel
+          worker={worker}
+          policy={job.cancelPolicy}
+          busy={busy === "cancel"}
+          onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}
+        />
+      )}
+
       {worker && mapsUrl && ["accepted", "scheduled", "on_the_way"].includes(job.status) && (
-        <a href={mapsUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full min-h-12 rounded-2xl border border-slate-200 font-semibold">
-          <Navigation className="w-4 h-4" /> Navigate
+        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full min-h-12 rounded-2xl border border-slate-200 font-semibold">
+          <Navigation className="w-4 h-4" /> Open Google Maps
         </a>
       )}
 
@@ -467,26 +508,6 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           })}
         </ol>
       </Card>
-
-      {job.cancelPolicy && !["completed", "payment_collected"].includes(job.status) && (
-        <Card padding="md" className="bg-amber-50 border-amber-100">
-          <p className="text-xs font-semibold text-amber-900">{job.cancelPolicy.title || "Cancel policy"}</p>
-          <p className="text-sm text-amber-800 mt-1">{job.cancelPolicy.text}</p>
-          {["matching", "open", "requested", "accepted", "scheduled", "on_the_way"].includes(job.status) && (
-            <button
-              type="button"
-              className="mt-3 text-sm font-semibold text-red-700"
-              disabled={!!busy}
-              onClick={() => {
-                const reason = window.prompt("Why are you cancelling?") || "Cancelled";
-                void run("cancel", () => RequestAPI.cancel(job.id, { reason }));
-              }}
-            >
-              {t("job.cancel")}
-            </button>
-          )}
-        </Card>
-      )}
 
       {!worker && (
         <div className="space-y-2">

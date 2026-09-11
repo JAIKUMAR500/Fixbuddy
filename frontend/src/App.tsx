@@ -75,7 +75,7 @@ function Shell() {
   const { setLang } = useLang();
 
   React.useEffect(() => {
-    if (user?.lang === "en" || user?.lang === "ta" || user?.lang === "hi") setLang(user.lang);
+    if (user?.lang === "ta" || user?.lang === "hi") setLang(user.lang);
   }, [user?.lang, setLang]);
 
   React.useEffect(() => {

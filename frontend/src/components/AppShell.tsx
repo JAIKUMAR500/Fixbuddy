@@ -154,6 +154,30 @@ export default function AppShell({
   const title =
     variant === "admin" ? "Super Admin" : variant === "worker" ? "Worker" : variant === "business" ? "Business" : "Customer";
 
+  const pickLang = (id: (typeof LANGS)[number]["id"]) => {
+    setLang(id);
+    if (user) void AuthAPI.updateMe({ lang: id }).then((d) => setUser(d.user)).catch(() => {});
+  };
+
+  const langButtons = (compact = false) => (
+    <div className={`flex ${compact ? "rounded-lg border border-slate-200 overflow-hidden" : "gap-1 mt-3"}`}>
+      {LANGS.map(({ id, short }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => pickLang(id)}
+          className={
+            compact
+              ? `min-w-9 min-h-9 px-2 text-[11px] font-bold ${lang === id ? "bg-brand text-white" : "bg-white text-slate-600"}`
+              : `flex-1 min-h-11 rounded-lg text-xs font-semibold ${lang === id ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`
+          }
+        >
+          {short}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-canvas flex">
       <aside className="hidden lg:flex w-64 bg-navy text-slate-300 flex-col h-screen sticky top-0">
@@ -167,7 +191,7 @@ export default function AppShell({
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto thin-scrollbar">
           {items.map(({ icon: Icon, label, view }) => (
             <button
-              key={label}
+              key={view}
               onClick={() => navigate(view)}
               className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${currentView === view ? "bg-brand text-white" : "hover:bg-navy-soft"
                 }`}
@@ -193,27 +217,13 @@ export default function AppShell({
           <button onClick={onLogout} className="flex items-center gap-2 text-sm text-slate-400 hover:text-red-300">
             <LogOut className="w-4 h-4" /> {t("nav.signOut")}
           </button>
-          <div className="flex gap-1 mt-3">
-            {LANGS.map(({ id, short }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => {
-                  setLang(id);
-                  if (user) void AuthAPI.updateMe({ lang: id }).then((d) => setUser(d.user)).catch(() => {});
-                }}
-                className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${lang === id ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`}
-              >
-                {short}
-              </button>
-            ))}
-          </div>
+          {langButtons()}
         </div>
       </aside>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 z-[2000] flex lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <aside className="relative z-10 w-64 bg-navy text-slate-300 flex flex-col h-full">
             <div className="h-16 px-5 flex items-center justify-between border-b border-white/10">
               <span className="text-white font-bold">FixBuddy</span>
@@ -222,7 +232,7 @@ export default function AppShell({
             <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
               {items.map(({ icon: Icon, label, view }) => (
                 <button
-                  key={label}
+                  key={view}
                   onClick={() => { navigate(view); setOpen(false); }}
                   className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${currentView === view ? "bg-brand text-white" : "hover:bg-navy-soft"
                     }`}
@@ -249,28 +259,14 @@ export default function AppShell({
               >
                 <LogOut className="w-4 h-4" /> {t("nav.signOut")}
               </button>
-              <div className="flex gap-1 mt-3">
-                {LANGS.map(({ id, short }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => {
-                      setLang(id);
-                      if (user) void AuthAPI.updateMe({ lang: id }).then((d) => setUser(d.user)).catch(() => {});
-                    }}
-                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${lang === id ? "bg-brand text-white" : "bg-white/10 text-slate-300"}`}
-                  >
-                    {short}
-                  </button>
-                ))}
-              </div>
+              {langButtons()}
             </div>
           </aside>
         </div>
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-40 h-16 bg-white border-b border-slate-200 px-4 lg:px-6 flex items-center gap-3">
+        <header className="sticky top-0 z-[80] h-14 sm:h-16 bg-white border-b border-slate-200 px-3 sm:px-4 lg:px-6 flex items-center gap-2 sm:gap-3">
           <button className="lg:hidden p-3 rounded-xl hover:bg-slate-100 min-w-11 min-h-11" onClick={() => setOpen(true)}>
             <Menu className="w-6 h-6 text-slate-600" />
           </button>
@@ -282,6 +278,7 @@ export default function AppShell({
             <p className="hidden sm:block text-xs text-slate-500 font-mono">{user?.userCode} · {user?.city || "Your city"}</p>
           )}
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            <div className="lg:hidden">{langButtons(true)}</div>
             <button
               type="button"
               onClick={onLogout}
@@ -305,7 +302,7 @@ export default function AppShell({
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto pb-24 lg:pb-0">
+        <main className="relative z-0 flex-1 overflow-y-auto pb-24 lg:pb-0">
           {currentJob && currentView !== "active-job" && (
             <button
               type="button"
@@ -324,15 +321,15 @@ export default function AppShell({
           )}
           {children}
         </main>
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 flex">
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-[90] bg-white border-t border-slate-200 flex safe-bottom">
           {items.slice(0, 5).map(({ icon: Icon, label, view }) => (
             <button
-              key={label}
+              key={view}
               onClick={() => navigate(view)}
-              className={`flex-1 py-3 flex flex-col items-center gap-1 text-xs min-h-[64px] ${currentView === view ? "text-brand" : "text-slate-400"}`}
+              className={`flex-1 py-2 px-0.5 flex flex-col items-center justify-center gap-0.5 min-h-[64px] ${currentView === view ? "text-brand" : "text-slate-400"}`}
             >
-              <Icon className="w-6 h-6" />
-              {label.split(" ")[0]}
+              <Icon className="w-6 h-6 shrink-0" />
+              <span className="text-[10px] leading-tight text-center max-w-full truncate px-0.5">{label}</span>
             </button>
           ))}
         </nav>

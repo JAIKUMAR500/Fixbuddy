@@ -68,9 +68,9 @@ export default function FamilyWatch({ navigate }: { navigate: (v: View) => void 
           </Card>
         )}
         <TrackMap
-          className="h-52 rounded-2xl overflow-hidden border"
           customer={undefined}
           worker={data.workerApprox}
+          tapHint="Open worker location in Google Maps"
         />
         {data.etaMinutes ? <p className="text-sm text-slate-600">ETA about {data.etaMinutes} minutes</p> : null}
         <Card padding="md">

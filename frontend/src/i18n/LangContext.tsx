@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type Lang = "en" | "ta" | "hi";
 
@@ -154,17 +154,74 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "job.activeJob": "நடப்பு வேலை",
   },
   hi: {
+    "nav.home": "होम",
+    "nav.find": "सेवा खोजें",
+    "nav.requests": "मेरे अनुरोध",
+    "nav.bookings": "बुकिंग",
+    "nav.messages": "संदेश",
+    "nav.reviews": "समीक्षा",
+    "nav.saved": "सहेजे गए",
+    "nav.wallet": "वॉलेट",
+    "nav.license": "लाइसेंस",
+    "nav.support": "सहायता",
+    "nav.profile": "प्रोफ़ाइल",
+    "nav.settings": "सेटिंग्स",
+    "nav.dashboard": "डैशबोर्ड",
+    "nav.postJob": "जॉब पोस्ट करें",
+    "nav.myJobs": "मेरे जॉब",
+    "nav.available": "उपलब्ध जॉब",
+    "nav.services": "मेरी सेवाएँ",
+    "nav.earnings": "कमाई",
+    "nav.schedule": "शेड्यूल",
+    "nav.analytics": "विश्लेषण",
+    "nav.team": "टीम",
+    "nav.crews": "क्रू",
+    "nav.nextJob": "अगला जॉब",
+    "nav.passport": "पासपोर्ट",
+    "nav.target": "टारगेट",
+    "nav.safety": "सुरक्षा",
+    "nav.ai": "AI जॉब",
+    "nav.signOut": "साइन आउट",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
     "lang.hi": "हिन्दी",
+    "common.save": "सेव करें",
+    "common.skip": "अभी छोड़ें",
+    "common.add": "जोड़ें",
+    "common.edit": "बदलें",
+    "common.delete": "हटाएँ",
+    "common.call": "कॉल",
+    "common.cancel": "रद्द करें",
+    "prompt.title": "थोड़ी और जानकारी दें",
+    "prompt.sub": "ज़रूरी नहीं — कभी भी छोड़ सकते हैं। सही काम मिलने में मदद करता है।",
+    "prompt.age": "उम्र",
+    "prompt.phone": "मोबाइल नंबर",
+    "prompt.job": "काम का प्रकार",
+    "prompt.studies": "पढ़ाई / शिक्षा",
+    "prompt.address": "पता",
+    "prompt.aadhaar": "आधार (वैकल्पिक)",
+    "prompt.pan": "PAN (वैकल्पिक)",
+    "prompt.gps": "लाइव लोकेशन इस्तेमाल करें",
+    "services.title": "मेरी सेवाएँ",
+    "services.sub": "जो काम आप करते हैं, उसे जोड़ें, बदलें या हटाएँ।",
+    "services.name": "सेवा का नाम",
+    "services.price": "शुरुआती कीमत ₹",
+    "ai.title": "AI जॉब सुझाव",
+    "ai.soon": "जल्द आ रहा है",
+    "ai.body": "FixBuddy AI जल्द आपके हुनर, जगह और पुराने काम के आधार पर पास के सबसे अच्छे जॉब सुझाएगा।",
+    "team.title": "टीम",
+    "team.groups": "ग्रुप",
+    "team.members": "सदस्य",
+    "team.invite": "सदस्य जोड़ें",
+    "team.newGroup": "नया ग्रुप",
     "job.accept": "जॉब स्वीकार करें",
     "job.onTheWay": "रास्ते में हूँ",
     "job.arrived": "पहुँच गया",
     "job.enterOtp": "OTP दर्ज करें",
     "job.start": "काम शुरू करें",
     "job.complete": "काम पूरा करें",
-    "job.collect": "नकद प्राप्त",
-    "job.cancel": "रद्द करें",
+    "job.collect": "नकद मिला",
+    "job.cancel": "जॉब रद्द करें",
     "job.findNextJob": "अगला जॉब खोजें",
     "job.activeJob": "चालू जॉब",
   },
@@ -197,6 +254,11 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   };
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dataset.lang = lang;
+  }, [lang]);
 
   const value = useMemo<Ctx>(
     () => ({

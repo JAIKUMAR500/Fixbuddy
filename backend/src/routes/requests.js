@@ -17,7 +17,7 @@ import {
   NO_ACCESS_MESSAGE,
   UNAVAILABLE_MESSAGE,
   approxCoord,
-  cancelPolicyFor,
+  canCancelJob,
   delayLabel,
   findCurrentJob,
   findWorkerLockedJob,
@@ -726,7 +726,8 @@ router.post(
     if (!doc) throw httpError(404, "Request not found");
     const isOwner = String(doc.customerId) === req.userId || String(doc.providerId) === req.userId;
     if (!isOwner && !isAdmin(req.user.role)) throw httpError(403, "Not allowed");
-    if (["completed", "payment_collected", "customer_completed", "reviewed"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
+    if (doc.status === "cancelled") throw httpError(400, "This job is already cancelled");
+    if (!canCancelJob(doc.status)) throw httpError(400, "This job can no longer be cancelled");
     const reason = String(req.body.reason || req.body.cancelReason || "Cancelled").slice(0, 200);
     const statusWas = doc.status;
     const cancelledBy =
@@ -785,7 +786,12 @@ router.post(
       const other = String(doc.customerId) === req.userId ? doc.providerId : doc.customerId;
       await notify(other, {
         type: "info",
-        text: cancelledBy === "customer" ? "Customer cancelled the request." : "A job was cancelled",
+        text:
+          cancelledBy === "customer"
+            ? "Customer cancelled the request."
+            : cancelledBy === "worker"
+              ? "Worker cancelled the job."
+              : "A job was cancelled",
         requestId: doc._id,
       });
     }

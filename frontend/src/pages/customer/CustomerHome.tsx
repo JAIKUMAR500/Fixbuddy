@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Search, ArrowRight, MapPin, SlidersHorizontal } from "lucide-react";
 import { View } from "../../types";
 import { Card, Badge, RatingStars, VerifiedBadge, Button, Avatar, EmptyState } from "../../components/ui";
-import TrackMap from "../../components/TrackMap";
+import CategoryIcon from "../../components/CategoryIcon";
 import { useApp, useFetch } from "../../api/AppContext";
 import { mediaUrl, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
 import { isEngagedStatus, isPendingStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
@@ -170,10 +170,12 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
             <button
               key={cat._id}
               onClick={() => { setRequestData({ category: cat.name, description: cat.name }); navigate("create-request"); }}
-              className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-brand hover:shadow-sm text-center"
+              className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 hover:border-brand hover:shadow-sm text-center min-h-24"
             >
-              <span className="text-2xl block mb-2">{cat.icon || "🔧"}</span>
-              <span className="text-xs font-semibold text-slate-700">{cat.name}</span>
+              <span className="flex justify-center text-brand mb-2">
+                <CategoryIcon icon={cat.icon} className="w-7 h-7" />
+              </span>
+              <span className="text-xs font-semibold text-slate-700 line-clamp-2 leading-tight">{cat.name}</span>
             </button>
           ))}
           <button
@@ -192,36 +194,33 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
           <h2 className="font-bold text-slate-900">Workers near you</h2>
         </div>
         {lat != null && lng != null && nearby[0] && (
-          <div className="mb-4">
-            <TrackMap customer={{ lat, lng }} worker={{ lat: nearby[0].lat, lng: nearby[0].lng }} />
-          </div>
+          <p className="text-xs text-slate-500 mb-3">Showing workers near your live location.</p>
         )}
         <div className="space-y-3">
           {nearby.slice(0, 8).map((p) => (
             <Card key={p.id} className="hover:border-brand">
-              <div className="flex gap-4">
-                <Avatar src={mediaUrl(p.avatar)} name={p.name} size="lg" className="rounded-2xl" />
-                <div className="flex-1">
-                  <div className="flex items-start justify-between">
-                    <div>
+              <div className="flex gap-3">
+                <Avatar src={mediaUrl(p.avatar)} name={p.name} size="lg" className="rounded-2xl shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
                       <p className="font-semibold flex items-center gap-2">
-                        {p.name}
-                        <span className={`inline-block w-2 h-2 rounded-full ${p.online || p.available ? "bg-emerald-500" : "bg-slate-300"}`} title={p.online ? "Active" : "Inactive"} />
-                        <span className="text-xs font-medium text-slate-500">{p.online ? "Active" : "Inactive"}</span>
+                        <span className="truncate">{p.name}</span>
+                        <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${p.online || p.available ? "bg-emerald-500" : "bg-slate-300"}`} title={p.online ? "Active" : "Inactive"} />
                       </p>
                       <p className="text-xs text-slate-500">{p.category} · {p.distance} away</p>
                     </div>
                     {p.verified && <VerifiedBadge />}
                   </div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
                     <RatingStars value={p.rating} count={p.reviews} />
                     <span>{p.price}</span>
                     <Badge variant={p.available ? "success" : "neutral"}>{p.available ? "Available" : "Busy"}</Badge>
                   </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Button size="sm" variant="outline" onClick={() => { setSelectedProvider(p); navigate("provider-details"); }}>View</Button>
-                  <Button size="sm" disabled={!p.available} onClick={() => { setSelectedProvider(p); setRequestData({ category: p.category, description: search || p.category }); navigate("create-request"); }}>Request</Button>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <Button size="sm" variant="outline" onClick={() => { setSelectedProvider(p); navigate("provider-details"); }}>View</Button>
+                    <Button size="sm" disabled={!p.available} onClick={() => { setSelectedProvider(p); setRequestData({ category: p.category, description: search || p.category }); navigate("create-request"); }}>Request</Button>
+                  </div>
                 </div>
               </div>
             </Card>

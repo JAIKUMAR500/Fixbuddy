@@ -10,6 +10,15 @@ export const ENGAGED_JOB_STATUSES = [
 
 export const PENDING_JOB_STATUSES = ["matching", "open", "requested"];
 export const PAID_JOB_STATUSES = ["payment_collected", "customer_completed", "reviewed"];
+export const CANCELLABLE_JOB_STATUSES = [
+  ...PENDING_JOB_STATUSES,
+  "accepted",
+  "scheduled",
+  "on_the_way",
+  "arrived",
+  "otp_verified",
+  "in_progress",
+];
 
 export function isEngagedStatus(status?: string | null) {
   return ENGAGED_JOB_STATUSES.includes(String(status || ""));
@@ -21,6 +30,10 @@ export function isPendingStatus(status?: string | null) {
 
 export function isPaidStatus(status?: string | null) {
   return PAID_JOB_STATUSES.includes(String(status || ""));
+}
+
+export function canCancelJob(status?: string | null) {
+  return CANCELLABLE_JOB_STATUSES.includes(String(status || ""));
 }
 
 export function jobError(err: unknown) {

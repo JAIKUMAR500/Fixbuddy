@@ -4,6 +4,15 @@ import { LOCKED_JOB_STATUSES } from "./geo.js";
 export const ENGAGED_JOB_STATUSES = [...LOCKED_JOB_STATUSES];
 export const PENDING_JOB_STATUSES = ["matching", "open", "requested"];
 export const CLOSED_JOB_STATUSES = ["payment_collected", "customer_completed", "reviewed", "cancelled", "declined"];
+export const CANCELLABLE_JOB_STATUSES = [
+  ...PENDING_JOB_STATUSES,
+  "accepted",
+  "scheduled",
+  "on_the_way",
+  "arrived",
+  "otp_verified",
+  "in_progress",
+];
 export const DELAY_REASONS = ["HEAVY_RAIN", "FOG", "ROAD_BLOCK", "TRAFFIC", "OTHER"];
 
 export const LOCK_MESSAGE = "You already have an active FixBuddy job. Complete or cancel it before accepting another.";
@@ -34,6 +43,10 @@ export async function findCurrentJob(user, userId) {
     .lean();
 }
 
+export function canCancelJob(status) {
+  return CANCELLABLE_JOB_STATUSES.includes(String(status || ""));
+}
+
 export function cancelPolicyFor(status, amount = 75) {
   const s = String(status || "");
   const traveling = ["on_the_way", "arrived", "otp_verified", "in_progress"].includes(s);
@@ -45,7 +58,7 @@ export function cancelPolicyFor(status, amount = 75) {
       afterTravel: false,
       amount: 0,
       title: "Free cancellation",
-      text: "Cancel anytime while a worker is still being found. No travel fee.",
+      text: "Cancel once while a worker is still being found. No travel fee.",
     };
   }
   if (assigned) {
@@ -54,7 +67,7 @@ export function cancelPolicyFor(status, amount = 75) {
       afterTravel: false,
       amount: 0,
       title: "Free cancellation",
-      text: "The worker has accepted but has not started travelling. You can cancel for free.",
+      text: "The worker has accepted but has not started travelling. You can cancel once for free.",
     };
   }
   if (traveling) {
@@ -63,7 +76,7 @@ export function cancelPolicyFor(status, amount = 75) {
       afterTravel: true,
       amount: Number(amount || 75),
       title: "Travel compensation may apply",
-      text: `The worker is already travelling. Cancelling now may add ₹${Number(amount || 75)} travel compensation for the worker.`,
+      text: `You can still cancel once after arrival or after work starts. Cancelling now may add ₹${Number(amount || 75)} travel compensation for the worker.`,
     };
   }
   return {

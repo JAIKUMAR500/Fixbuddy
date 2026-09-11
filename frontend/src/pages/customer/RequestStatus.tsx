@@ -4,15 +4,18 @@ import { View } from "../../types";
 import { Button, Card, RatingStars, Avatar, EmptyState } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import TrackMap from "../../components/TrackMap";
+import CancelJobPanel from "../../components/CancelJobPanel";
 import { useApp, useFetch } from "../../api/AppContext";
 import { RequestAPI, ChatAPI, SafetyAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { isBusiness } from "../../api/roles";
 import { startCall, jobAllowsCall } from "../../api/phone";
+import { openMapsNav } from "../../api/geo";
+import { canCancelJob, jobError } from "../../api/jobLock";
 
 const TRACKING = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"];
 
 export default function RequestStatus({ navigate }: { navigate: (v: View) => void }) {
-  const { activeRequestId, setActiveRequestId, user } = useApp();
+  const { activeRequestId, setActiveRequestId, user, refreshCurrentJob } = useApp();
   const [otpInput, setOtpInput] = React.useState("");
   const [reviewStars, setReviewStars] = React.useState(5);
   const [reviewText, setReviewText] = React.useState("");
@@ -20,7 +23,6 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   const path = activeRequestId ? `/requests/${activeRequestId}` : "/requests/active";
   const { data, loading, error, reload } = useFetch<{ request: JobRequest | null }>(path, activeRequestId ? 1 : 0);
   const [cancelling, setCancelling] = React.useState(false);
-  const [cancelReason, setCancelReason] = React.useState("");
   const [reportMsg, setReportMsg] = React.useState("");
   const [acting, setActing] = React.useState("");
   const request = data?.request || null;
@@ -83,12 +85,16 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
     }
   };
 
-  const cancelRequest = async () => {
+  const cancelRequest = async (reason: string) => {
     if (!request?.id) return;
     setCancelling(true);
+    setChatError("");
     try {
-      await RequestAPI.cancel(request.id, { reason: cancelReason || (worker ? "Worker cancelled" : "Customer cancelled") });
+      await RequestAPI.cancel(request.id, { reason: reason || (worker ? "Worker cancelled" : "Customer cancelled") });
+      await refreshCurrentJob();
       navigate(backView);
+    } catch (e) {
+      setChatError(jobError(e));
     } finally {
       setCancelling(false);
     }
@@ -184,10 +190,19 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                 <TrackMap
                   customer={{ lat: request.lat, lng: request.lng }}
                   worker={{ lat: request.workerLat, lng: request.workerLng }}
+                  navigateTo={
+                    worker
+                      ? { lat: request.lat, lng: request.lng }
+                      : { lat: request.workerLat ?? request.lat, lng: request.workerLng ?? request.lng }
+                  }
+                  origin={
+                    worker
+                      ? { lat: request.workerLat, lng: request.workerLng }
+                      : { lat: request.lat, lng: request.lng }
+                  }
+                  tapHint={worker ? "Open customer location in Google Maps" : "Open worker location in Google Maps"}
                 />
                 <div className="px-4 py-3 flex flex-wrap gap-3 text-xs text-slate-600">
-                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-600" /> Service location</span>
-                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-600" /> Worker</span>
                   {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
                   {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
                 </div>
@@ -260,7 +275,18 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
             {worker && request.providerId === user?.id && (
               <Card padding="lg" className="space-y-3">
                 {action === "enroute" && (
-                  <Button size="lg" fullWidth loading={!!acting} onClick={() => void run(async () => RequestAPI.enroute(request.id, await coords()))}>
+                  <Button
+                    size="lg"
+                    fullWidth
+                    loading={!!acting}
+                    onClick={() =>
+                      void run(async () => {
+                        const here = await coords();
+                        await RequestAPI.enroute(request.id, here);
+                        if (request.lat != null && request.lng != null) openMapsNav({ lat: request.lat, lng: request.lng }, here);
+                      })
+                    }
+                  >
                     <Navigation className="w-5 h-5" /> On the way
                   </Button>
                 )}
@@ -305,6 +331,15 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                   </div>
                 )}
               </Card>
+            )}
+
+            {canCancelJob(request.status) && (
+              <CancelJobPanel
+                worker={worker}
+                policy={request.cancelPolicy}
+                busy={cancelling}
+                onCancel={(reason) => void cancelRequest(reason)}
+              />
             )}
 
             {!worker && request.status === "completed" && request.paymentStatus !== "collected" && (
@@ -360,32 +395,8 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
               </div>
             )}
 
-            {!["payment_collected", "customer_completed", "reviewed"].includes(request.status) && (
+            {!["payment_collected", "customer_completed", "reviewed", "cancelled"].includes(request.status) && (
               <div className="space-y-2">
-                {worker && (
-                  <select value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm">
-                    <option value="">Cancellation reason</option>
-                    <option>Emergency</option>
-                    <option>Customer requested cancellation</option>
-                    <option>Wrong job information</option>
-                    <option>Unsafe location</option>
-                    <option>Vehicle problem</option>
-                    <option>Personal emergency</option>
-                    <option>Other</option>
-                  </select>
-                )}
-                {!worker && (
-                  <select value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm">
-                    <option value="">Why are you cancelling?</option>
-                    <option>Changed plans</option>
-                    <option>Worker delayed</option>
-                    <option>Found another option</option>
-                    <option>Other</option>
-                  </select>
-                )}
-                <button onClick={() => void cancelRequest()} disabled={cancelling} className="w-full text-center text-base text-red-500 font-medium py-4 min-h-12 rounded-xl border border-red-200 hover:bg-red-50 disabled:opacity-50">
-                  {cancelling ? "Cancelling..." : "Cancel Request"}
-                </button>
                 <button
                   type="button"
                   className="w-full text-center text-sm text-slate-500 font-medium py-3"
@@ -393,7 +404,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                     void SafetyAPI.report({
                       requestId: request.id,
                       subject: worker ? "Report customer" : "Report worker",
-                      body: cancelReason || "Reported from live tracking",
+                      body: "Reported from live tracking",
                     })
                       .then(() => setReportMsg("Report submitted to FixBuddy support."))
                       .catch((e: Error) => setReportMsg(e.message));

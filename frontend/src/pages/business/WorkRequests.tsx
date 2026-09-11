@@ -3,15 +3,17 @@ import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare, Play, 
 import { View } from "../../types";
 import { Card, EmptyState, Skeleton } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
+import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { useApp, useFetch } from "../../api/AppContext";
-import { jobError } from "../../api/jobLock";
+import { canCancelJob, jobError } from "../../api/jobLock";
+import { openMapsNav } from "../../api/geo";
 
 const OPEN = ["open", "requested", "matching"];
 const ACTIVE = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"];
 
 export default function WorkRequests({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, user } = useApp();
+  const { setActiveRequestId, user, refreshCurrentJob } = useApp();
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests?inbox=true");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
@@ -41,7 +43,12 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       };
       if (kind === "accept") await RequestAPI.accept(id);
       else if (kind === "decline") await RequestAPI.decline(id);
-      else if (kind === "enroute") await RequestAPI.enroute(id, await loc());
+      else if (kind === "enroute") {
+        const here = await loc();
+        await RequestAPI.enroute(id, here);
+        const row = requests.find((r) => r.id === id);
+        if (row?.lat != null && row?.lng != null) openMapsNav({ lat: row.lat, lng: row.lng }, here);
+      }
       else if (kind === "arrive") await RequestAPI.arrive(id, await loc());
       else if (kind === "start") await RequestAPI.start(id);
       else if (kind === "collect") await RequestAPI.collectPayment(id);
@@ -113,18 +120,42 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       )}
 
       {job && (
-        <button
-          type="button"
-          onClick={() => {
-            setActiveRequestId(job.id);
-            navigate("active-job");
-          }}
-          className="w-full rounded-2xl bg-slate-900 text-white px-4 py-4 text-left"
-        >
-          <p className="text-[11px] uppercase tracking-wider text-sky-200">You have an active job</p>
-          <p className="font-semibold mt-1">{job.category} · {job.status.replace(/_/g, " ")}</p>
-          <p className="text-sm text-sky-200 mt-1">Open active job</p>
-        </button>
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveRequestId(job.id);
+              navigate("active-job");
+            }}
+            className="w-full rounded-2xl bg-slate-900 text-white px-4 py-4 text-left"
+          >
+            <p className="text-[11px] uppercase tracking-wider text-sky-200">You have an active job</p>
+            <p className="font-semibold mt-1">{job.category} · {job.status.replace(/_/g, " ")}</p>
+            <p className="text-sm text-sky-200 mt-1">Open active job</p>
+          </button>
+          {canCancelJob(job.status) && (
+            <CancelJobPanel
+              worker
+              policy={job.cancelPolicy}
+              busy={busy === job.id}
+              onCancel={(reason) =>
+                void (async () => {
+                  setBusy(job.id);
+                  setActionError("");
+                  try {
+                    await RequestAPI.cancel(job.id, { reason });
+                    await refreshCurrentJob();
+                    reload();
+                  } catch (e) {
+                    setActionError(jobError(e));
+                  } finally {
+                    setBusy(null);
+                  }
+                })()
+              }
+            />
+          )}
+        </div>
       )}
 
       {mustFinish && available.length > 0 && (
@@ -302,12 +333,19 @@ function OfferCard({
 }
 
 function Meta({ req }: { req: JobRequest }) {
+  const hasPin = req.lat != null && req.lng != null;
   return (
     <div className="grid grid-cols-3 gap-2 text-xs">
-      <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+      <button
+        type="button"
+        disabled={!hasPin}
+        onClick={() => hasPin && openMapsNav({ lat: req.lat as number, lng: req.lng as number })}
+        className="rounded-xl bg-slate-50 px-3 py-2.5 text-left disabled:opacity-100"
+      >
         <p className="text-slate-400 font-medium mb-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location</p>
         <p className="font-semibold text-slate-800 truncate">{req.area || req.city}</p>
-      </div>
+        {hasPin && <p className="text-[10px] text-brand font-semibold mt-0.5">Open Google Maps</p>}
+      </button>
       <div className="rounded-xl bg-slate-50 px-3 py-2.5">
         <p className="text-slate-400 font-medium mb-0.5 flex items-center gap-1"><Clock className="w-3 h-3" /> When</p>
         <p className="font-semibold text-slate-800 truncate">{req.scheduledLabel || req.timing}</p>
