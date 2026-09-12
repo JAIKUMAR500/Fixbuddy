@@ -429,6 +429,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       {canCancelJob(job.status) && (
         <CancelJobPanel
           worker={worker}
+          job={job}
           policy={job.cancelPolicy}
           busy={busy === "cancel"}
           onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}

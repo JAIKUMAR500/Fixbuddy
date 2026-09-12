@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { User } from "../models/User.js";
 import { buildLicense, nextUserCode } from "./license.js";
 
-const DEMO_PASSWORD = "password123";
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "";
 
 const DEMOS = [
   {
@@ -57,16 +57,10 @@ const DEMOS = [
       location: "Koramangala, Bengaluru",
     },
   },
-  {
-    email: "admin@fixbuddy.com",
-    name: "Fixbuddy Admin",
-    role: "admin",
-    phone: "+91 90000 00000",
-    city: "Bengaluru",
-  },
 ];
 
 export async function ensureDemoAccounts() {
+  if (process.env.NODE_ENV === "production" || process.env.ENABLE_DEMO_ACCOUNTS !== "true" || !DEMO_PASSWORD) return;
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
   for (const demo of DEMOS) {
     const existing = await User.findOne({ email: demo.email }).lean();
@@ -81,9 +75,8 @@ export async function ensureDemoAccounts() {
       { upsert: true, new: true }
     );
   }
-  console.log("Demo logins ready (password: password123)");
+  console.log("Development demo accounts are ready.");
   console.log("  customer@fixbuddy.com  → Customer");
   console.log("  worker@fixbuddy.com    → Worker");
   console.log("  provider@fixbuddy.com  → Business");
-  console.log("  admin@fixbuddy.com     → Super Admin");
 }

@@ -22,11 +22,13 @@ const CUSTOMER_REASONS = [
 
 export default function CancelJobPanel({
   worker,
+  job,
   policy,
   busy,
   onCancel,
 }: {
   worker: boolean;
+  job: Pick<JobRequest, "id" | "code" | "category" | "description" | "status">;
   policy?: JobRequest["cancelPolicy"] | null;
   busy?: boolean;
   onCancel: (reason: string) => void;
@@ -39,6 +41,9 @@ export default function CancelJobPanel({
     <Card padding="md" className="border-red-100 bg-red-50/60 space-y-3">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wider text-red-700">Cancel this job</p>
+        <p className="mt-1 font-semibold text-slate-900">{job.category}</p>
+        <p className="text-xs text-slate-600 line-clamp-2">{job.description}</p>
+        <p className="mt-1 text-xs text-slate-500">{job.code} · {job.status.replace(/_/g, " ")}</p>
         <p className="text-sm text-slate-700 mt-1">
           {policy?.text || "You can cancel once, including after arrival or after work starts. After that this job is closed."}
         </p>

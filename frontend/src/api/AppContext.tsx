@@ -35,7 +35,7 @@ type Ctx = {
   login: (email: string, password: string, role?: string) => Promise<AppUser>;
   signup: (body: object) => Promise<AppUser>;
   googleLogin: (credential: string, role?: string) => Promise<AppUser>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setUser: (u: AppUser | null) => void;
   routeAfterAuth: (u: AppUser) => void;
   unreadNotifications: number;
@@ -131,7 +131,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [routeAfterAuth]
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await AuthAPI.logout();
+    } catch {
+      /* The local session must still be removed when the network is unavailable. */
+    }
     localStorage.removeItem("fb_token");
     setUser(null);
     setActiveRequestId(null);

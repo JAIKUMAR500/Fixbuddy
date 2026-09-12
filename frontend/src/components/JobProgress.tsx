@@ -2,19 +2,21 @@ import React from "react";
 import { Check } from "lucide-react";
 
 export const JOB_STEPS = [
-  { key: "accept", label: "Accept" },
-  { key: "enroute", label: "On the way" },
-  { key: "arrive", label: "Arrived" },
-  { key: "start", label: "Start" },
-  { key: "complete", label: "Complete" },
+  { key: "request", label: "Request" },
+  { key: "accepted", label: "Accepted" },
+  { key: "travel", label: "Travel" },
+  { key: "arrived", label: "Arrived" },
+  { key: "verified", label: "Verified" },
+  { key: "working", label: "Working" },
+  { key: "completed", label: "Completed" },
 ] as const;
 
 export function jobStepIndex(status?: string | null) {
   const s = String(status || "");
-  if (["reviewed", "customer_completed", "payment_collected"].includes(s)) return 5;
-  if (s === "completed") return 5;
-  if (s === "in_progress") return 4;
-  if (["otp_verified", "arrived"].includes(s)) return 3;
+  if (["reviewed", "customer_completed", "payment_collected", "completed"].includes(s)) return 7;
+  if (s === "in_progress") return 5;
+  if (s === "otp_verified") return 4;
+  if (s === "arrived") return 3;
   if (s === "on_the_way") return 2;
   if (["accepted", "scheduled"].includes(s)) return 1;
   return 0;

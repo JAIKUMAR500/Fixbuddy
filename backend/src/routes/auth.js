@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { User } from "../models/User.js";
 import { Otp } from "../models/Otp.js";
+import { Session } from "../models/Session.js";
 import { signToken, auth, forgetAuthUser, rememberAuthUser } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser } from "../utils/serialize.js";
@@ -41,7 +42,7 @@ router.post(
         ? { businessName: name, description: "", onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
         : undefined,
     });
-    const token = signToken(user);
+    const token = await signToken(user);
     res.status(201).json({ token, user: publicUser(user.toObject()) });
   })
 );
@@ -130,7 +131,7 @@ router.post(
       throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
     }
     await ensureUserCode(user);
-    const token = signToken(user);
+    const token = await signToken(user);
     const lean = user.toObject();
     delete lean.passwordHash;
     rememberAuthUser(lean);
@@ -143,6 +144,24 @@ router.get(
   auth,
   asyncHandler(async (req, res) => {
     res.json({ user: publicUser(req.user) });
+  })
+);
+
+router.post(
+  "/logout",
+  auth,
+  asyncHandler(async (req, res) => {
+    await Session.updateOne({ _id: req.sessionId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+    res.status(204).end();
+  })
+);
+
+router.post(
+  "/logout-all",
+  auth,
+  asyncHandler(async (req, res) => {
+    await Session.updateMany({ userId: req.userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+    res.status(204).end();
   })
 );
 
@@ -178,8 +197,8 @@ router.patch(
   })
 );
 
-function issueAuth(user, res, status = 200) {
-  const token = signToken(user);
+async function issueAuth(user, res, status = 200) {
+  const token = await signToken(user);
   const lean = typeof user.toObject === "function" ? user.toObject() : user;
   delete lean.passwordHash;
   res.status(status).json({ token, user: publicUser(lean) });
@@ -266,8 +285,9 @@ router.post(
     const user = await User.findOneAndUpdate({ email, ...(role ? { role } : {}) }, { $set: { passwordHash } }, { new: true });
     if (!user) throw httpError(404, "Account not found");
     await Otp.deleteMany({ email, role: role || "", purpose: "reset" });
+    await Session.updateMany({ userId: user._id, revokedAt: null }, { $set: { revokedAt: new Date() } });
     await ensureLoginLicense(user);
-    issueAuth(user, res);
+    await issueAuth(user, res);
   })
 );
 
@@ -315,7 +335,7 @@ router.post(
     if (!hasValidLicense(user)) {
       throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
     }
-    issueAuth(user, res);
+    await issueAuth(user, res);
   })
 );
 

@@ -33,6 +33,8 @@ export const AuthAPI = {
     api<{ token: string; user: AppUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, role }) }),
   signup: (body: object) =>
     api<{ token: string; user: AppUser }>("/auth/signup", { method: "POST", body: JSON.stringify(body) }),
+  logout: () => api<void>("/auth/logout", { method: "POST" }),
+  logoutAll: () => api<void>("/auth/logout-all", { method: "POST" }),
   google: (credential: string, role?: string) =>
     api<{ token: string; user: AppUser }>("/auth/google", { method: "POST", body: JSON.stringify({ credential, role }) }),
   forgot: (email: string, role?: string) =>

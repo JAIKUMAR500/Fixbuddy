@@ -59,7 +59,7 @@ Payment idempotency, upload hardening, location privacy, URL routing, and automa
 
 #### 1. Known production fallback secrets and credentials
 
-**Evidence:** `backend/src/config/env.js:12,25` falls back to `fixbuddy-dev-jwt-secret-change-in-production` and `password123`. The README also documents demo/admin credentials.
+**Evidence:** The previous configuration used predictable fallback secrets and publicly documented admin credentials.
 
 **Risk:** If production environment variables are missing, attackers can predict the admin password and forge JWTs. This can expose every authenticated route and administrative settings.
 

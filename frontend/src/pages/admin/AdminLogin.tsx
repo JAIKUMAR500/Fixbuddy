@@ -1,14 +1,13 @@
 import React, { useState } from "react";
-import { Copy, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { View } from "../../types";
 import { Button, Input } from "../../components/ui";
 import { useApp } from "../../api/AppContext";
-import { SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD } from "../../api/brand";
 
 export default function AdminLogin({ navigate }: { navigate: (v: View) => void }) {
   const { login, logout } = useApp();
-  const [email, setEmail] = useState(SUPER_ADMIN_EMAIL);
-  const [password, setPassword] = useState(SUPER_ADMIN_PASSWORD);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +19,7 @@ export default function AdminLogin({ navigate }: { navigate: (v: View) => void }
     try {
       const user = await login(email, password, "admin");
       if (user.role !== "admin") {
-        logout();
+        await logout();
         setError("This login is for Super Admin only");
       }
     } catch (requestError) {
@@ -33,7 +32,7 @@ export default function AdminLogin({ navigate }: { navigate: (v: View) => void }
   const openForgot = () => {
     try {
       sessionStorage.setItem("fb_forgot", "1");
-      sessionStorage.setItem("fb_forgot_email", email || SUPER_ADMIN_EMAIL);
+      sessionStorage.setItem("fb_forgot_email", email);
     } catch {
       /* ignore */
     }
@@ -61,22 +60,6 @@ export default function AdminLogin({ navigate }: { navigate: (v: View) => void }
           </div>
           <h1 className="text-2xl font-bold font-display text-slate-900 mb-1">Admin Portal</h1>
           <p className="text-sm text-slate-500 mb-4">Super Admin login</p>
-          <div className="rounded-2xl border border-brand/20 bg-brand-soft/60 p-4 mb-5 text-sm">
-            <p className="text-xs uppercase tracking-wide text-brand font-semibold mb-2">Login ID</p>
-            <p className="font-mono text-slate-900 flex items-center justify-between gap-2">
-              {SUPER_ADMIN_EMAIL}
-              <button type="button" className="text-brand" onClick={() => void navigator.clipboard?.writeText(SUPER_ADMIN_EMAIL)}>
-                <Copy className="w-4 h-4" />
-              </button>
-            </p>
-            <p className="text-xs uppercase tracking-wide text-brand font-semibold mt-3 mb-2">Password</p>
-            <p className="font-mono text-slate-900 flex items-center justify-between gap-2">
-              {SUPER_ADMIN_PASSWORD}
-              <button type="button" className="text-brand" onClick={() => void navigator.clipboard?.writeText(SUPER_ADMIN_PASSWORD)}>
-                <Copy className="w-4 h-4" />
-              </button>
-            </p>
-          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input label="Email Address" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <div className="relative">

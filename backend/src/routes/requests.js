@@ -1,5 +1,6 @@
 import { Router } from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { Request } from "../models/Request.js";
 import { User } from "../models/User.js";
 import { Review } from "../models/Review.js";
@@ -20,6 +21,7 @@ import {
   UNAVAILABLE_MESSAGE,
   approxCoord,
   canCancelJob,
+  cancelPolicyFor,
   delayLabel,
   findCurrentJob,
   findWorkerLockedJob,
@@ -28,6 +30,11 @@ import {
 import { normalizeLang, translateText } from "../utils/translate.js";
 
 const router = Router();
+
+router.param("id", (req, res, next, id) => {
+  if (!mongoose.isValidObjectId(id)) return next(httpError(400, "Invalid request ID"));
+  next();
+});
 
 async function nextCode() {
   const n = await Request.countDocuments();
@@ -497,7 +504,7 @@ router.post(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
-    if (!["accepted", "scheduled"].includes(doc.status)) throw httpError(400, "Accept the job first, then start travel.");
+    if (!["accepted", "scheduled"].includes(doc.status)) throw httpError(409, "Accept the job first, then start travel.");
     if (req.body.lat != null && req.body.lng != null) {
       doc.workerLat = Number(req.body.lat);
       doc.workerLng = Number(req.body.lng);
@@ -518,7 +525,7 @@ router.post(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
-    if (!["on_the_way", "accepted", "scheduled"].includes(doc.status)) throw httpError(400, "Mark on the way before arriving.");
+    if (!["on_the_way", "accepted", "scheduled"].includes(doc.status)) throw httpError(409, "Mark on the way before arriving.");
     doc.jobOtp = String(crypto.randomInt(1000, 10000));
     doc.jobOtpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
     doc.jobOtpAttempts = 0;
@@ -544,7 +551,7 @@ router.post(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
-    if (doc.status !== "arrived") throw httpError(400, "OTP is only used after the worker arrives.");
+    if (doc.status !== "arrived") throw httpError(409, "OTP is only used after the worker arrives.");
     const code = String(req.body.otp || "").replace(/\D/g, "");
     if (code.length !== 4) throw httpError(400, "Enter the 4-digit OTP from the customer.");
     if (!doc.jobOtp || doc.otpVerified) throw httpError(400, "OTP is no longer valid.");
@@ -604,7 +611,7 @@ router.post(
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
     if (!doc.otpVerified && doc.status !== "otp_verified") {
-      throw httpError(403, "Verify the customer OTP after you arrive, then start work.");
+      throw httpError(409, "Verify the customer OTP after you arrive, then start work.");
     }
     doc.startedAt = new Date();
     pushTimeline(doc, "in_progress", "Work started");
@@ -621,7 +628,7 @@ router.post(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
-    if (doc.status !== "in_progress") throw httpError(400, "Start work before marking it complete.");
+    if (doc.status !== "in_progress") throw httpError(409, "Start work before marking it complete.");
     doc.completedAt = new Date();
     pushTimeline(doc, "completed", "Work completed. Confirm payment collected.");
     await doc.save();
@@ -747,13 +754,29 @@ router.post(
     if (!doc) throw httpError(404, "Request not found");
     const isOwner = String(doc.customerId) === req.userId || String(doc.providerId) === req.userId;
     if (!isOwner && !isAdmin(req.user.role)) throw httpError(403, "Not allowed");
-    if (["completed", "payment_collected", "customer_completed", "reviewed"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
-    pushTimeline(doc, "cancelled", req.body.reason || "Cancelled");
-    await doc.save();
-    const other = String(doc.customerId) === req.userId ? doc.providerId : doc.customerId;
-    await notify(other, { type: "info", text: "A job was cancelled", requestId: doc._id });
-    const extras = await loadPeople(doc.toObject());
-    res.json({ request: presentRequest(doc, extras), compensation, eligible });
+    if (!canCancelJob(doc.status)) throw httpError(409, "This job can no longer be cancelled");
+    const reason = String(req.body.reason || "Cancelled").slice(0, 300);
+    const policy = cancelPolicyFor(doc.status);
+    const compensation = String(doc.customerId) === req.userId && policy.afterTravel ? policy.amount : 0;
+    const cancelled = await Request.findOneAndUpdate(
+      { _id: doc._id, status: doc.status },
+      {
+        $set: {
+          status: "cancelled",
+          cancelReason: reason,
+          cancelledAt: new Date(),
+          cancelledBy: isAdmin(req.user.role) ? "admin" : String(doc.customerId) === req.userId ? "customer" : "worker",
+          travelCompensation: compensation,
+        },
+        $push: { timeline: { status: "cancelled", note: reason, at: new Date() } },
+      },
+      { new: true }
+    );
+    if (!cancelled) throw httpError(409, "This job changed before it could be cancelled. Refresh and try again.");
+    const other = String(cancelled.customerId) === req.userId ? cancelled.providerId : cancelled.customerId;
+    if (other) await notify(other, { type: "info", text: "A job was cancelled", requestId: cancelled._id });
+    const extras = await loadPeople(cancelled.toObject());
+    res.json({ request: presentRequest(cancelled, extras), compensation, eligible: policy.free });
   })
 );
 

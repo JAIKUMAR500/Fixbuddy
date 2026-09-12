@@ -55,7 +55,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     setInfo("");
     setSubmitting(true);
     try {
-      const d = await AuthAPI.forgot(form.email, selectedType);
+      const d = await AuthAPI.forgot(form.email, mode === "signup" ? selectedType : undefined);
       setInfo(d.message);
       setScreen("forgot-otp");
     } catch (e) {
@@ -77,7 +77,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     setSubmitting(true);
     try {
-      const { token, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password, role: selectedType });
+      const { token, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password, role: mode === "signup" ? selectedType : undefined });
       localStorage.setItem("fb_token", token);
       routeAfterAuth(user);
     } catch (e) {
@@ -91,7 +91,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     setError("");
     setSubmitting(true);
     try {
-      await googleLogin(credential, selectedType);
+      await googleLogin(credential, mode === "signup" ? selectedType : undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed");
     } finally {
@@ -124,7 +124,7 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     setSubmitting(true);
     try {
-      if (mode === "login") await login(email, form.password, selectedType);
+      if (mode === "login") await login(email, form.password);
       else await signup({ name: form.name, email, password: form.password, role: selectedType });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to complete authentication");
@@ -180,12 +180,12 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
             {screen === "forgot-password" && "Choose a new password, then you can sign in."}
             {screen === "form" && (mode === "signup"
               ? "Name, email and password are enough. Extra details can wait."
-              : "Choose the account type you used at signup, then enter the same email and password.")}
+              : "Enter the email or mobile number and password you used to create your account.")}
           </p>
 
-          {screen === "form" && (
+          {screen === "form" && mode === "signup" && (
             <>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Sign in as</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Create account as</p>
               <div className="grid grid-cols-3 gap-2 mb-6">
                 {ROLES.map((type) => (
                   <button

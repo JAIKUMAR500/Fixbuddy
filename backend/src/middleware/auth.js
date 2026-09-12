@@ -1,12 +1,18 @@
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { User } from "../models/User.js";
+import { Session } from "../models/Session.js";
 import { httpError } from "../utils/asyncHandler.js";
 import { hasValidLicense } from "../utils/license.js";
 
 const userCache = new Map();
 const USER_TTL_MS = 20_000;
 const SEEN_TTL_MS = 60_000;
+
+function hashTokenId(tokenId) {
+  return crypto.createHash("sha256").update(String(tokenId)).digest("hex");
+}
 
 export function rememberAuthUser(user) {
   if (!user?._id) return;
@@ -23,7 +29,15 @@ export async function auth(req, res, next) {
     const token = header.startsWith("Bearer ") ? header.slice(7) : null;
     if (!token) throw httpError(401, "Sign in required");
     const payload = jwt.verify(token, env.jwtSecret);
+    if (!payload.jti) throw httpError(401, "Session is no longer valid. Please sign in again.");
     const id = String(payload.sub);
+    const session = await Session.findOne({
+      userId: id,
+      tokenHash: hashTokenId(payload.jti),
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    }).lean();
+    if (!session) throw httpError(401, "Session is no longer valid. Please sign in again.");
     const cached = userCache.get(id);
     let user = cached && Date.now() - cached.at < USER_TTL_MS ? cached.user : null;
     if (!user) {
@@ -36,6 +50,7 @@ export async function auth(req, res, next) {
     req.user = user;
     req.userId = id;
     req.userCode = user.userCode || "";
+    req.sessionId = String(session._id);
     const seenAt = user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0;
     if (Date.now() - seenAt > SEEN_TTL_MS) {
       User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date() } }).catch(() => {});
@@ -60,8 +75,17 @@ export function requireRole(...roles) {
   };
 }
 
-export function signToken(user) {
-  return jwt.sign({ sub: String(user._id), role: user.role, uid: user.userCode || "" }, env.jwtSecret, {
+export async function signToken(user) {
+  const tokenId = crypto.randomBytes(32).toString("hex");
+  const token = jwt.sign({ sub: String(user._id), role: user.role, uid: user.userCode || "" }, env.jwtSecret, {
     expiresIn: env.jwtExpires,
+    jwtid: tokenId,
   });
+  const decoded = jwt.decode(token);
+  await Session.create({
+    userId: user._id,
+    tokenHash: hashTokenId(tokenId),
+    expiresAt: new Date(Number(decoded?.exp || 0) * 1000),
+  });
+  return token;
 }

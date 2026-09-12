@@ -27,6 +27,9 @@ const AV = {
 };
 
 async function run() {
+  if (process.env.NODE_ENV === "production") throw new Error("The seed command is disabled in production.");
+  const seedPassword = process.env.SEED_PASSWORD;
+  if (!seedPassword) throw new Error("Set SEED_PASSWORD before running the development seed command.");
   console.warn("WARNING: seed deletes all users and application data. Use only for a disposable development database.");
   await connectDb();
   console.log("Seeding", env.mongoUri);
@@ -45,7 +48,7 @@ async function run() {
     PlatformSettings.deleteMany({}),
   ]);
 
-  const passwordHash = await bcrypt.hash("password123", 10);
+  const passwordHash = await bcrypt.hash(seedPassword, 10);
 
   await Category.insertMany([
     { name: "AC Repair & Service", icon: "❄️", description: "Split, window and cassette AC service", services: [{ name: "AC Service", priceFrom: 399 }, { name: "Gas Refill", priceFrom: 1499 }] },
@@ -59,7 +62,7 @@ async function run() {
 
   const admin = await User.create({
     name: "Fixbuddy Admin",
-    email: "admin@fixbuddy.com",
+    email: process.env.ADMIN_EMAIL || "dev-admin@localhost",
     phone: "+91 90000 00000",
     passwordHash,
     role: "admin",
@@ -456,11 +459,10 @@ async function run() {
     { userId: worker._id, type: "info", text: `Scheduled PC repair ${scheduled.code}` },
   ]);
 
-  console.log("Seed complete. Demo logins (password: password123)");
+  console.log("Seed complete. Credentials were supplied through environment variables.");
   console.log("  customer@fixbuddy.com  → Customer (creates requests)");
   console.log("  provider@fixbuddy.com  → Business (creates jobs)");
   console.log("  worker@fixbuddy.com    → Worker (job seeker)");
-  console.log("  admin@fixbuddy.com     → Super Admin");
   process.exit(0);
 }
 

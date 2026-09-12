@@ -31,19 +31,12 @@ export async function ensureProductionAccounts() {
   await repairUserCodes();
 
   const adminEmail = env.adminEmail;
-  const passwordHash = await bcrypt.hash(env.adminPassword, 10);
+  if (!adminEmail || !env.adminPassword) return;
   const existing = await User.findOne({ email: adminEmail }).select("+passwordHash");
   if (existing) {
-    existing.passwordHash = passwordHash;
-    existing.role = "admin";
-    existing.status = "active";
-    existing.profileAsked = true;
-    existing.license = buildLicense({ days: 3650, plan: "admin" });
-    existing.markModified("passwordHash");
-    await existing.save();
-    console.log(`Super Admin ready: ${adminEmail}`);
     return;
   }
+  const passwordHash = await bcrypt.hash(env.adminPassword, 10);
   await createUserWithCode({
     name: "FixBuddy Admin",
     email: adminEmail,
@@ -54,5 +47,5 @@ export async function ensureProductionAccounts() {
     license: buildLicense({ days: 3650, plan: "admin" }),
     profileAsked: true,
   });
-  console.log(`Super Admin created: ${adminEmail}`);
+  console.log("Configured Super Admin created");
 }

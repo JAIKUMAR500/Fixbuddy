@@ -336,6 +336,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
             {canCancelJob(request.status) && (
               <CancelJobPanel
                 worker={worker}
+                job={request}
                 policy={request.cancelPolicy}
                 busy={cancelling}
                 onCancel={(reason) => void cancelRequest(reason)}
