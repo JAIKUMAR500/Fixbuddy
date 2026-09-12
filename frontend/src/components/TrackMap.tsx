@@ -26,7 +26,7 @@ export default function TrackMap({
           ? { lat: worker.lat, lng: worker.lng }
           : null;
 
-  if (!customer?.lat && !worker?.lat) {
+  if (!dest) {
     return (
       <div className={`rounded-2xl bg-slate-100 border border-slate-200 px-4 py-8 text-center text-sm text-slate-500 ${className}`}>
         Location will appear when GPS is available.

@@ -1,5 +1,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { AppUser, AuthAPI, JobRequest, Provider as ApiProvider, RequestAPI, api } from "./client";
+import {
+  AppNotif,
+  AppUser,
+  ApiError,
+  AuthAPI,
+  JobRequest,
+  NotifAPI,
+  Provider as ApiProvider,
+  RequestAPI,
+  api,
+} from "./client";
 import { View } from "../types";
 import { roleHome } from "./roles";
 import { readGps } from "./geo";
@@ -52,6 +62,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [requestData, setRequestData] = useState<Ctx["requestData"]>({});
   const [selectedProvider, setSelectedProvider] = useState<ApiProvider | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [currentJob, setCurrentJob] = useState<JobRequest | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const navigate = useCallback((v: View) => {
     setView(v);
@@ -237,7 +249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         browserEnabled = preferenceResult.preferences.browser !== false;
         const result = await NotifAPI.list();
         setUnreadNotifications(result.unread);
-        const current = new Set(result.notifications.map((item) => item.id));
+        const current = new Set<string>(result.notifications.map((item) => item.id));
         if (initialized) {
           result.notifications.filter((item) => !seen.has(item.id) && !item.read).slice(0, 3).forEach(announce);
         }
@@ -280,7 +292,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       routeAfterAuth,
       unreadNotifications,
     }),
-    [user, ready, view, navigate, requestData, selectedProvider, activeRequestId, login, signup, googleLogin, logout, routeAfterAuth]
+    [
+      user,
+      ready,
+      view,
+      navigate,
+      requestData,
+      selectedProvider,
+      activeRequestId,
+      currentJob,
+      refreshCurrentJob,
+      login,
+      signup,
+      googleLogin,
+      logout,
+      routeAfterAuth,
+      unreadNotifications,
+    ]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

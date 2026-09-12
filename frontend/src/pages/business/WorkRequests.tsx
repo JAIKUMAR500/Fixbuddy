@@ -44,7 +44,8 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       if (kind === "accept") {
         const { request } = await RequestAPI.accept(id);
         setActiveRequestId(request.id);
-        navigate("job-details");
+        await refreshCurrentJob();
+        navigate("active-job");
         return;
       }
       else if (kind === "decline") await RequestAPI.decline(id);
@@ -58,11 +59,6 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       else if (kind === "start") await RequestAPI.start(id);
       else if (kind === "collect") await RequestAPI.collectPayment(id);
       else await RequestAPI.complete(id);
-      if (kind === "accept") {
-        setActiveRequestId(id);
-        navigate("active-job");
-        return;
-      }
       reload();
     } catch (e) {
       setActionError(jobError(e));
@@ -141,6 +137,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
           {canCancelJob(job.status) && (
             <CancelJobPanel
               worker
+              job={job}
               policy={job.cancelPolicy}
               busy={busy === job.id}
               onCancel={(reason) =>

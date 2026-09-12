@@ -151,7 +151,7 @@ export default function AppShell({
   const [open, setOpen] = React.useState(false);
   const [liveNotice, setLiveNotice] = React.useState("");
   const { t, lang, setLang } = useLang();
-  const { setUser, currentJob, setActiveRequestId } = useApp();
+  const { setUser, currentJob, setActiveRequestId, unreadNotifications } = useApp();
   const items = itemsFor(variant, t);
   const shown = displayName(user);
   const title =

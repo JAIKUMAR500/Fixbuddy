@@ -39,6 +39,11 @@ import { FavoritesPage, LicensePage, LiveAnalytics, LiveWallet, SupportPage } fr
 import AccountSettings from "./pages/shared/AccountSettings";
 import AiRecommend from "./pages/shared/AiRecommend";
 import TeamPage from "./pages/business/TeamPage";
+import ActiveJob from "./pages/shared/ActiveJob";
+import PublicPassport from "./pages/worker/PublicPassport";
+import FamilyWatch from "./pages/shared/FamilyWatch";
+import FindCrew from "./pages/customer/FindCrew";
+import PublicWorkerProfile from "./pages/PublicWorkerProfile";
 
 class RouteErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -204,8 +209,8 @@ function Shell() {
 }
 
 function PublicProfileEntry() {
-  const workerId = window.location.pathname.split("/").filter(Boolean)[1] || "";
-  return <PublicWorkerProfile workerId={workerId} />;
+  const userCode = window.location.pathname.split("/").filter(Boolean)[1] || "";
+  return <PublicWorkerProfile userCode={userCode} />;
 }
 
 function Root() {

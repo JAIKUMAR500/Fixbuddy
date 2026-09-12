@@ -1,4 +1,4 @@
-function apiBase() {
+﻿function apiBase() {
   const raw = String(import.meta.env.VITE_API_URL || "").trim();
   if (!raw) return "/api";
   const noSlash = raw.replace(/\/$/, "");
@@ -279,6 +279,9 @@ export type WorkerJobCard = {
   homeKm?: number | null;
 };
 
+// Alias kept for callers that used the older WorkerJobSuggestion name.
+export type WorkerJobSuggestion = WorkerJobCard;
+
 export type WorkerTarget = {
   date: string;
   amount: number;
@@ -340,9 +343,21 @@ export type WorkerPassport = {
   bio?: string;
   skills: { id?: string; name: string; verified: boolean; pending: boolean }[];
   badges: WorkerBadge[];
-  stats?: Record<string, unknown>;
+  stats?: WorkerPassportStats;
   byCategory?: Record<string, { jobs: number; amount: number }>;
   proof?: { category: string; before: string; after: string }[];
+  publicProfileUrl?: string;
+};
+
+export type WorkerPassportStats = {
+  jobs: number;
+  completed: number;
+  ratingAvg: number;
+  ratingCount: number;
+  onTimePct: number;
+  cancelPct: number;
+  byCategory: Record<string, { jobs: number; amount: number }>;
+  verified: boolean;
 };
 
 export const WorkerAPI = {
@@ -364,6 +379,9 @@ export const WorkerAPI = {
     }>("/worker/dashboard"),
   getTarget: () => api<{ target: WorkerTarget }>("/worker/daily-target"),
   setTarget: (amount: number) =>
+    api<{ target: WorkerTarget }>("/worker/daily-target", { method: "PUT", body: JSON.stringify({ amount }) }),
+  // Alias kept for callers that used the older saveTarget name.
+  saveTarget: (amount: number) =>
     api<{ target: WorkerTarget }>("/worker/daily-target", { method: "PUT", body: JSON.stringify({ amount }) }),
   history: () =>
     api<{ history: Record<string, { amount: number; jobs: number }> }>("/worker/earnings/history"),
@@ -389,6 +407,14 @@ export const WorkerAPI = {
   passport: () => api<{ passport: WorkerPassport }>("/worker/passport"),
   updatePassport: (body: object) =>
     api<{ passport: WorkerPassport }>("/worker/passport", { method: "PUT", body: JSON.stringify(body) }),
+  // Alias kept for callers that used the older savePassport name.
+  savePassport: (body: object) =>
+    api<{ passport: WorkerPassport }>("/worker/passport", { method: "PUT", body: JSON.stringify(body) }),
+  safety: (body: object) =>
+    api<{ incident: { id: string; type: string; status: string } }>("/safety/incidents", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   addSkill: (name: string) =>
     api<{ skills: WorkerPassport["skills"] }>("/worker/skills", { method: "POST", body: JSON.stringify({ name }) }),
   requestVerify: (id: string) =>
@@ -501,6 +527,24 @@ export const AdminAPI = {
     api<{ user: AppUser }>(`/admin/users/${id}/license`, { method: "POST", body: JSON.stringify(body) }),
   revokeLicense: (id: string) => api<{ user: AppUser }>(`/admin/users/${id}/license/revoke`, { method: "POST" }),
   licenses: () => api<{ licenses: { id: string; userCode: string; name: string; email: string; role: string; license: UserLicense }[] }>("/admin/licenses"),
+  skillVerification: () =>
+    api<{
+      skills: { id: string; workerId: string; worker: string; email: string; name: string; level: string; requestedAt: string }[];
+    }>("/admin/skill-verification"),
+  reviewSkill: (workerId: string, skillId: string, body: object) =>
+    api<{ ok: boolean }>(
+      `/admin/skill-verification/${encodeURIComponent(workerId)}/${encodeURIComponent(skillId)}`,
+      { method: "PATCH", body: JSON.stringify(body) }
+    ),
+  safety: () =>
+    api<{ incidents: { id: string; type: string; status: string; description: string; createdAt: string; workerId: string }[] }>(
+      "/admin/safety"
+    ),
+  patchSafety: (id: string, body: object) =>
+    api<{ ok: boolean }>(`/admin/safety/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  crews: () => api<{ crews: WorkerCrew[] }>("/admin/crews"),
+  patchCrew: (id: string, body: object) =>
+    api<{ ok: boolean }>(`/admin/crews/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export type AppUser = {

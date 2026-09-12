@@ -115,6 +115,9 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
   const [mailMsg, setMailMsg] = useState("");
   const [incidents, setIncidents] = useState<{ id: string; type: string; status: string; description: string; createdAt: string; workerId: string }[]>([]);
   const [crews, setCrews] = useState<WorkerCrew[]>([]);
+  const [skillRows, setSkillRows] = useState<
+    { id: string; workerId: string; worker: string; email: string; name: string; level: string; requestedAt: string }[]
+  >([]);
 
   const load = async () => {
     setLoading(true);
@@ -288,7 +291,7 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
                 showVerify={view !== "admin-customers"}
               />
             </Card>
-            {view === "admin-verification" && <Card padding="md" className="mt-5"><h2 className="font-semibold text-slate-900 mb-3">Pending skill verification</h2>{skillRows.length === 0 ? <p className="text-sm text-slate-500">No skill requests waiting.</p> : <div className="space-y-2">{skillRows.map((skill) => <div key={skill.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-3 py-3"><div className="flex-1 min-w-[180px]"><p className="font-semibold text-sm text-slate-900">{skill.name} · {skill.level}</p><p className="text-xs text-slate-500">{skill.worker} · {skill.email}</p></div><Button size="sm" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "verified" }).then(() => load())}>Approve</Button><Button size="sm" variant="outline" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "rejected" }).then(() => load())}>Reject</Button></div>)}</div>}</Card>}
+            {view === "admin-verification" && <Card padding="md" className="mt-5"><h2 className="font-semibold text-slate-900 mb-3">Pending skill verification</h2>{skillRows.length === 0 ? <p className="text-sm text-slate-500">No skill requests waiting.</p> : <div className="space-y-2">{skillRows.map((skill: { id: string; workerId: string; worker: string; email: string; name: string; level: string }) => <div key={skill.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-3 py-3"><div className="flex-1 min-w-[180px]"><p className="font-semibold text-sm text-slate-900">{skill.name} · {skill.level}</p><p className="text-xs text-slate-500">{skill.worker} · {skill.email}</p></div><Button size="sm" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "verified" }).then(() => load())}>Approve</Button><Button size="sm" variant="outline" onClick={() => void AdminAPI.reviewSkill(skill.workerId, skill.id, { status: "rejected" }).then(() => load())}>Reject</Button></div>)}</div>}</Card>}
           </>
         )
       )}
