@@ -168,7 +168,6 @@ app.get("/api/public/stats", async (_req, res) => {
   cacheSet("public:stats", payload, 60_000);
   res.json(payload);
 });
-
 app.use("/api/auth", authRoutes);
 app.use("/api/providers", auth, providerRoutes);
 app.use("/api/requests", auth, requestRoutes);
