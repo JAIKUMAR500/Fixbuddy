@@ -120,8 +120,6 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
             Details <ArrowRight className="w-4 h-4" />
           </span>
         </button>
-      </Card>
-
         <JobSection
           title={worker ? "Assigned jobs" : "Jobs you posted"}
           actionLabel="View all"
