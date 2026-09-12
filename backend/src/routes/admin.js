@@ -172,6 +172,20 @@ router.patch(
     const set = {};
     if (req.body.status) set.status = req.body.status;
     if (req.body.verified != null) set["provider.verified"] = !!req.body.verified;
+    if (req.body.skillName && req.body.skillVerified != null) {
+      const userDoc = await User.findById(req.params.id);
+      if (!userDoc) throw httpError(404, "User not found");
+      const skill = (userDoc.provider?.skills || []).find(
+        (s) => String(s.name).toLowerCase() === String(req.body.skillName).toLowerCase() || String(s._id) === String(req.body.skillName)
+      );
+      if (skill) {
+        skill.verified = !!req.body.skillVerified;
+        skill.pending = false;
+        await userDoc.save();
+        await logAudit(req, req.body.skillVerified ? "Verified skill" : "Cleared skill verification", `${userDoc.email} · ${skill.name}`);
+        return res.json({ user: publicUser(userDoc.toObject()) });
+      }
+    }
     if (req.body.role) set.role = req.body.role;
     if (req.body.name) set.name = req.body.name;
     if (req.body.city) set.city = req.body.city;
@@ -430,6 +444,10 @@ function presentSettings(doc) {
     smtpPass: "",
     smtpPassSet: Boolean(o.smtpPass),
     commissionPercent: o.commissionPercent,
+    travelCompensationInr: o.travelCompensationInr ?? 75,
+    festivalName: o.festivalName || "",
+    festivalCity: o.festivalCity || "",
+    festivalNote: o.festivalNote || "",
     platformName: o.platformName,
     cancellationPolicy: o.cancellationPolicy || {},
   };
@@ -457,6 +475,10 @@ router.patch(
       "smtpPort",
       "smtpUser",
       "commissionPercent",
+      "travelCompensationInr",
+      "festivalName",
+      "festivalCity",
+      "festivalNote",
       "platformName",
     ];
     for (const k of keys) {
@@ -496,6 +518,65 @@ router.get(
   asyncHandler(async (_req, res) => {
     const rows = await Category.find().sort({ name: 1 }).lean();
     res.json({ categories: rows });
+  })
+);
+
+router.get(
+  "/safety",
+  asyncHandler(async (_req, res) => {
+    const { SafetyIncident } = await import("../models/SafetyIncident.js");
+    const rows = await SafetyIncident.find().sort({ createdAt: -1 }).limit(100).lean();
+    res.json({
+      incidents: rows.map((r) => ({
+        id: String(r._id),
+        workerId: String(r.workerId),
+        requestId: r.requestId ? String(r.requestId) : null,
+        type: r.type,
+        description: r.description,
+        status: r.status,
+        lat: r.lat,
+        lng: r.lng,
+        createdAt: r.createdAt,
+      })),
+    });
+  })
+);
+
+router.patch(
+  "/safety/:id",
+  asyncHandler(async (req, res) => {
+    const { SafetyIncident } = await import("../models/SafetyIncident.js");
+    const status = ["open", "reviewing", "resolved"].includes(req.body.status) ? req.body.status : "reviewing";
+    const doc = await SafetyIncident.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true });
+    if (!doc) throw httpError(404, "Incident not found");
+    await logAudit(req, `Safety ${status}`, String(doc._id));
+    res.json({ incident: { id: String(doc._id), status: doc.status } });
+  })
+);
+
+router.get(
+  "/crews",
+  asyncHandler(async (_req, res) => {
+    const { Crew } = await import("../models/Crew.js");
+    const { presentCrew } = await import("../utils/serialize.js");
+    const rows = await Crew.find().sort({ updatedAt: -1 }).limit(80).lean();
+    res.json({
+      crews: rows.map((c) => presentCrew(c)),
+    });
+  })
+);
+
+router.patch(
+  "/crews/:id",
+  asyncHandler(async (req, res) => {
+    const { Crew } = await import("../models/Crew.js");
+    const { presentCrew } = await import("../utils/serialize.js");
+    const set = {};
+    if (req.body.status && ["active", "suspended"].includes(req.body.status)) set.status = req.body.status;
+    const crew = await Crew.findByIdAndUpdate(req.params.id, { $set: set }, { new: true }).lean();
+    if (!crew) throw httpError(404, "Team not found");
+    await logAudit(req, `Crew ${crew.status}`, crew.name);
+    res.json({ crew: presentCrew(crew) });
   })
 );
 

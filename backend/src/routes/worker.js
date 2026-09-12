@@ -1,197 +1,390 @@
 import { Router } from "express";
-import { Request } from "../models/Request.js";
 import { User } from "../models/User.js";
-import { WorkerDailyTarget } from "../models/WorkerDailyTarget.js";
-import { WorkerPassport } from "../models/WorkerPassport.js";
-import { SafetyIncident } from "../models/SafetyIncident.js";
+import { Request } from "../models/Request.js";
+import { Crew } from "../models/Crew.js";
+import { requireRole } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
-import { isSeeker } from "../utils/roles.js";
-import { km, OPEN_JOB_STATUSES } from "../utils/geo.js";
-import { notify, notifyMany } from "../services/notify.js";
+import { professionalPublic } from "../utils/serialize.js";
+import { OPEN_JOB_STATUSES } from "../utils/geo.js";
+import { findWorkerLockedJob, LOCK_MESSAGE } from "../utils/jobLock.js";
+import {
+  todayEarned,
+  earnedInRange,
+  getOrCreateTarget,
+  rankJobs,
+  presentJobCard,
+  greetingFor,
+  startOfDay,
+  todayKey,
+  loadPassport,
+} from "../utils/workerPower.js";
 
 const router = Router();
+router.use(requireRole("worker"));
 
-function workerOnly(req) {
-  if (!isSeeker(req.user.role)) throw httpError(403, "Worker accounts only");
+async function passportBundle(user) {
+  return loadPassport(user);
 }
 
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function amountFor(request) {
-  return Number(request.workerQuote || request.estimatedAmount || 0);
-}
-
-function publicPassport(user, passport, stats) {
-  return {
-    worker: { id: String(user._id), name: user.name, avatar: user.avatar || "", city: user.city || "", role: user.role },
-    passport: {
-      bio: passport?.bio || "",
-      experienceYears: passport?.experienceYears || 0,
-      languages: passport?.languages || [],
-      serviceAreas: passport?.serviceAreas || [],
-      skills: (passport?.skills || []).map((skill) => ({ id: String(skill._id), name: skill.name, level: skill.level, verified: skill.verificationStatus === "verified" || !!skill.verified, verificationStatus: skill.verificationStatus || "unverified" })),
-    },
-      stats,
-      badges: [
-        ...(stats.totalJobs >= 100 ? ["100 Jobs Completed"] : []),
-        ...(stats.rating >= 4.8 ? ["4.8+ Rated"] : []),
-        ...(stats.verified ? ["Verified Professional"] : []),
-      ],
-      publicProfileUrl: `/workers/${String(user._id)}/public-profile`,
+async function openJobsFor(worker) {
+  const cat = worker.provider?.category;
+  const filter = {
+    status: { $in: OPEN_JOB_STATUSES },
+    declinedBy: { $ne: worker._id },
+    $or: [{ providerId: null }, { providerId: { $exists: false } }],
   };
+  const rows = await Request.find(filter).sort({ createdAt: -1 }).limit(80).lean();
+  const available = worker.provider?.nextJobAvailable !== false;
+  if (!available) return [];
+  return rows.filter((j) => {
+    if (!cat) return true;
+    const hay = `${j.category || ""} ${(j.tags || []).join(" ")}`.toLowerCase();
+    const skill = (worker.provider?.skills || []).map((s) => s.name).join(" ").toLowerCase();
+    if (hay.includes(String(cat).toLowerCase())) return true;
+    if (skill && hay.split(/\s+/).some((t) => t.length > 3 && skill.includes(t))) return true;
+    if (j.publicPost) return true;
+    return (j.matches || []).some((m) => String(m.providerId) === String(worker._id)) ||
+      (j.invitedProviderIds || []).some((id) => String(id) === String(worker._id));
+  });
 }
 
-async function workerStats(workerId) {
-  const paid = await Request.find({ providerId: workerId, paymentStatus: "collected" })
-    .select("workerQuote estimatedAmount paymentCollectedAt")
-    .lean();
-  const amount = paid.reduce((sum, item) => sum + amountFor(item), 0);
-  const today = todayKey();
-  const todayAmount = paid.filter((item) => item.paymentCollectedAt && new Date(item.paymentCollectedAt).toISOString().slice(0, 10) === today).reduce((sum, item) => sum + amountFor(item), 0);
-  const completed = await Request.countDocuments({ providerId: workerId, status: { $in: ["completed", "payment_collected", "customer_completed", "reviewed"] } });
-  return { totalJobs: completed, paidJobs: paid.length, totalEarnings: amount, todayEarnings: todayAmount };
-}
+router.get(
+  "/dashboard",
+  asyncHandler(async (req, res) => {
+    const user = req.user;
+    const fallback = user.provider?.dailyTargetAmount || 1500;
+    const [target, earned, pack, crew, nearby, todayJobs, locked, settings] = await Promise.all([
+      getOrCreateTarget(user._id, fallback),
+      todayEarned(user._id),
+      passportBundle(user),
+      Crew.findOne({ "members.userId": user._id, status: "active" }).lean(),
+      openJobsFor(user),
+      Request.countDocuments({
+        providerId: user._id,
+        paymentStatus: "collected",
+        paymentCollectedAt: { $gte: startOfDay() },
+      }),
+      findWorkerLockedJob(user._id),
+      import("../models/PlatformSettings.js").then((m) => m.getSettings()),
+    ]);
+    const remaining = Math.max(0, target.amount - earned);
+    const ranked = locked ? [] : rankJobs(user, nearby, { remaining, sort: "recommended" });
+    const best = ranked[0] ? presentJobCard(ranked[0]) : null;
+    const pct = target.amount ? Math.min(100, Math.round((earned / target.amount) * 100)) : 0;
+    const city = String(user.city || "");
+    const festival =
+      settings.festivalName &&
+      (!settings.festivalCity || !city || String(settings.festivalCity).toLowerCase() === city.toLowerCase())
+        ? {
+            name: settings.festivalName,
+            city: settings.festivalCity || "",
+            note: settings.festivalNote || `Festival demand is high. More ${user.provider?.category || "service"} jobs may be available.`,
+          }
+        : null;
+    res.json({
+      greeting: greetingFor(),
+      available: user.provider?.available !== false,
+      nextJobAvailable: user.provider?.nextJobAvailable !== false,
+      todayJobs,
+      locked: !!locked,
+      activeJob: locked
+        ? {
+            id: String(locked._id),
+            code: locked.code,
+            category: locked.category,
+            status: locked.status,
+            area: locked.area || locked.city,
+          }
+        : null,
+      target: {
+        date: target.date,
+        amount: target.amount,
+        earned,
+        remaining,
+        percent: pct,
+        achieved: earned >= target.amount,
+      },
+      bestJob: best,
+      nearbyCount: ranked.length,
+      recommended: ranked.slice(0, 3).map(presentJobCard),
+      crew: crew
+        ? {
+            id: String(crew._id),
+            name: crew.name,
+            members: (crew.members || []).filter((m) => m.status === "active").length,
+            ratingAvg: crew.ratingAvg || 0,
+            completedJobs: crew.completedJobs || 0,
+          }
+        : null,
+      passport: {
+        verified: pack.stats.verified,
+        jobs: pack.stats.jobs,
+        ratingAvg: pack.stats.ratingAvg,
+        badges: pack.badges,
+      },
+      festival,
+    });
+  })
+);
 
 router.get(
   "/daily-target",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const stats = await workerStats(req.userId);
-    const target = await WorkerDailyTarget.findOneAndUpdate(
-      { workerId: req.userId },
-      { $setOnInsert: { workerId: req.userId, amount: 1500, targetDate: todayKey() } },
-      { upsert: true, new: true }
-    ).lean();
-    if (target.targetDate !== todayKey()) {
-      await WorkerDailyTarget.updateOne({ workerId: req.userId }, { $set: { amount: 1500, targetDate: todayKey() } });
-      target.amount = 1500;
-      target.targetDate = todayKey();
-    }
-    const remaining = Math.max(0, target.amount - stats.todayEarnings);
-    res.json({ target: { amount: target.amount, date: todayKey(), earned: stats.todayEarnings, remaining, progress: target.amount ? Math.min(100, Math.round((stats.todayEarnings / target.amount) * 100)) : 0, achieved: stats.todayEarnings >= target.amount } });
+    const fallback = req.user.provider?.dailyTargetAmount || 1500;
+    const target = await getOrCreateTarget(req.userId, fallback);
+    const earned = await todayEarned(req.userId);
+    const remaining = Math.max(0, target.amount - earned);
+    const jobsCompleted = await Request.countDocuments({
+      providerId: req.userId,
+      paymentStatus: "collected",
+      paymentCollectedAt: { $gte: startOfDay() },
+    });
+    res.json({
+      target: {
+        date: target.date,
+        amount: target.amount,
+        earned,
+        remaining,
+        percent: target.amount ? Math.min(100, Math.round((earned / target.amount) * 100)) : 0,
+        achieved: earned >= target.amount,
+        jobsCompleted,
+      },
+    });
   })
 );
 
-router.put(
-  "/daily-target",
-  asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const amount = Number(req.body.amount);
-    if (!Number.isFinite(amount) || amount < 0 || amount > 1000000) throw httpError(400, "Enter a valid daily target");
-    const target = await WorkerDailyTarget.findOneAndUpdate({ workerId: req.userId }, { $set: { amount, targetDate: todayKey() } }, { upsert: true, new: true }).lean();
-    res.json({ target: { amount: target.amount, date: targetDate(target), earned: 0, remaining: target.amount, progress: 0, achieved: false } });
-  })
-);
-
-function targetDate(target) {
-  return target.targetDate || todayKey();
+async function saveTarget(req, res) {
+  const amount = Math.round(Number(req.body.amount || req.body.target || 0));
+  if (!amount || amount < 100 || amount > 100000) throw httpError(400, "Enter a target between ₹100 and ₹1,00,000");
+  const date = todayKey();
+  const row = await getOrCreateTarget(req.userId, amount);
+  row.amount = amount;
+  await row.save();
+  await User.updateOne({ _id: req.userId }, { $set: { "provider.dailyTargetAmount": amount } });
+  const earned = await todayEarned(req.userId);
+  res.json({
+    target: {
+      date,
+      amount,
+      earned,
+      remaining: Math.max(0, amount - earned),
+      percent: Math.min(100, Math.round((earned / amount) * 100)),
+      achieved: earned >= amount,
+    },
+  });
 }
+
+router.post("/daily-target", asyncHandler(saveTarget));
+router.put("/daily-target", asyncHandler(saveTarget));
 
 router.get(
   "/earnings/history",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const rows = await Request.find({ providerId: req.userId, paymentStatus: "collected" }).sort({ paymentCollectedAt: -1 }).limit(100).select("code category workerQuote estimatedAmount paymentCollectedAt status").lean();
-    res.json({ earnings: rows.map((row) => ({ id: String(row._id), code: row.code, category: row.category, amount: amountFor(row), paidAt: row.paymentCollectedAt, status: row.status })) });
-  })
-);
-
-async function nearby(req, res) {
-  workerOnly(req);
-  const lat = Number(req.query.lat ?? req.user.lat);
-  const lng = Number(req.query.lng ?? req.user.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) throw httpError(400, "A valid worker location is required");
-  const category = String(req.user.provider?.category || "").trim().toLowerCase();
-  const rows = await Request.find({ status: { $in: OPEN_JOB_STATUSES }, providerId: null, declinedBy: { $ne: req.userId }, lat: { $ne: null }, lng: { $ne: null }, ...(category ? { $or: [{ category }, { tags: category }] } : {}) }).sort({ createdAt: -1 }).limit(80).lean();
-  const jobs = rows.map((job) => {
-    const distanceKm = km(lat, lng, job.lat, job.lng);
-    const amount = amountFor(job);
-    const urgent = String(job.timing || "").toLowerCase().includes("asap") ? 1 : 0;
-    return { id: String(job._id), code: job.code, category: job.category, description: job.description, amount, distanceKm, etaMinutes: distanceKm == null ? null : Math.max(1, Math.round((distanceKm / 22) * 60)), area: job.area, city: job.city, timing: job.timing, urgent, score: (distanceKm == null ? 0 : Math.max(0, 100 - distanceKm * 10)) + amount / 20 + urgent * 12 };
-  }).filter((job) => job.distanceKm == null || job.distanceKm <= 50).sort((a, b) => b.score - a.score).slice(0, 20);
-  res.json({ jobs });
-}
-
-router.get("/nearby-jobs", asyncHandler(nearby));
-router.get("/recommended-jobs", asyncHandler(nearby));
-
-router.post(
-  "/safety/incidents",
-  asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const type = ["emergency", "unsafe_location", "customer_report", "worker_report", "other"].includes(req.body.type) ? req.body.type : "emergency";
-    const lat = req.body.lat == null ? null : Number(req.body.lat);
-    const lng = req.body.lng == null ? null : Number(req.body.lng);
-    const incident = await SafetyIncident.create({ workerId: req.userId, requestId: req.body.requestId || null, type, description: String(req.body.description || "").slice(0, 1000), lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null });
-    const admins = await User.find({ role: "admin", status: "active" }).select("_id").lean();
-    await notifyMany(admins.map((admin) => admin._id), { type: "warning", text: `Worker safety incident reported: ${type}`, requestId: incident.requestId });
-    res.status(201).json({ incident: { id: String(incident._id), status: incident.status, type: incident.type, createdAt: incident.createdAt } });
+    const now = new Date();
+    const yesterday = startOfDay(new Date(now.getTime() - 86400000));
+    const week = startOfDay(new Date(now.getTime() - 7 * 86400000));
+    const month = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+    const [today, yest, thisWeek, thisMonth] = await Promise.all([
+      earnedInRange(req.userId, startOfDay()),
+      earnedInRange(req.userId, yesterday).then(async (full) => {
+        const todayPart = await earnedInRange(req.userId, startOfDay());
+        return { amount: Math.max(0, full.amount - todayPart.amount), jobs: Math.max(0, full.jobs - todayPart.jobs) };
+      }),
+      earnedInRange(req.userId, week),
+      earnedInRange(req.userId, month),
+    ]);
+    res.json({ history: { today, yesterday: yest, week: thisWeek, month: thisMonth } });
   })
 );
 
 router.get(
-  "/safety/incidents/:id",
+  "/nearby-jobs",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const incident = await SafetyIncident.findOne({ _id: req.params.id, workerId: req.userId }).lean();
-    if (!incident) throw httpError(404, "Safety incident not found");
-    res.json({ incident: { id: String(incident._id), type: incident.type, description: incident.description, status: incident.status, createdAt: incident.createdAt } });
+    if (req.user.provider?.available === false) {
+      return res.json({ jobs: [], message: "Go online to see nearby jobs.", remaining: 0, gps: false, nextJobAvailable: false });
+    }
+    const locked = await findWorkerLockedJob(req.userId);
+    if (locked) {
+      return res.json({
+        jobs: [],
+        remaining: 0,
+        gps: req.user.lat != null && req.user.lng != null,
+        nextJobAvailable: false,
+        locked: true,
+        activeJobId: String(locked._id),
+        message: LOCK_MESSAGE,
+      });
+    }
+    const sort = String(req.query.sort || "recommended");
+    const target = await getOrCreateTarget(req.userId, req.user.provider?.dailyTargetAmount || 1500);
+    const earned = await todayEarned(req.userId);
+    const remaining = Math.max(0, target.amount - earned);
+    const jobs = rankJobs(req.user, await openJobsFor(req.user), { remaining, sort });
+    res.json({
+      jobs: jobs.map(presentJobCard),
+      remaining,
+      gps: req.user.lat != null && req.user.lng != null,
+      nextJobAvailable: req.user.provider?.nextJobAvailable !== false,
+      locked: false,
+    });
+  })
+);
+
+router.get(
+  "/recommended-jobs",
+  asyncHandler(async (req, res) => {
+    const locked = await findWorkerLockedJob(req.userId);
+    if (locked) {
+      return res.json({
+        best: null,
+        jobs: [],
+        remaining: 0,
+        target: req.user.provider?.dailyTargetAmount || 1500,
+        earned: 0,
+        locked: true,
+        activeJobId: String(locked._id),
+        message: LOCK_MESSAGE,
+      });
+    }
+    const target = await getOrCreateTarget(req.userId, req.user.provider?.dailyTargetAmount || 1500);
+    const earned = await todayEarned(req.userId);
+    const remaining = Math.max(0, target.amount - earned);
+    const jobs = rankJobs(req.user, await openJobsFor(req.user), { remaining, sort: "recommended" });
+    const best = jobs[0] ? presentJobCard(jobs[0]) : null;
+    res.json({
+      best,
+      jobs: jobs.slice(0, 8).map(presentJobCard),
+      remaining,
+      target: target.amount,
+      earned,
+    });
+  })
+);
+
+router.put(
+  "/availability",
+  asyncHandler(async (req, res) => {
+    const set = {};
+    if (req.body.available != null) set["provider.available"] = !!req.body.available;
+    if (req.body.nextJobAvailable != null) set["provider.nextJobAvailable"] = !!req.body.nextJobAvailable;
+    if (!Object.keys(set).length) throw httpError(400, "Nothing to update");
+    const user = await User.findByIdAndUpdate(req.userId, { $set: set }, { new: true }).lean();
+    res.json({
+      available: user.provider?.available !== false,
+      nextJobAvailable: user.provider?.nextJobAvailable !== false,
+    });
   })
 );
 
 router.get(
   "/passport",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const passport = await WorkerPassport.findOne({ workerId: req.userId }).lean();
-    res.json({ passport: publicPassport(req.user, passport, { ...(await workerStats(req.userId)), rating: req.user.provider?.ratingAvg || 0, verified: !!req.user.provider?.verified }) });
+    const pack = await passportBundle(req.user);
+    res.json({
+      passport: {
+        ...professionalPublic(req.user, { ...pack.stats, badges: pack.badges }),
+        skills: pack.skills,
+        stats: pack.stats,
+        badges: pack.badges,
+        proof: pack.proof || [],
+      },
+    });
   })
 );
 
 router.put(
   "/passport",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const skills = Array.isArray(req.body.skills) ? req.body.skills.slice(0, 20).map((skill) => ({ name: String(skill.name || "").trim(), level: ["beginner", "experienced", "expert"].includes(skill.level) ? skill.level : "experienced" })).filter((skill) => skill.name) : [];
-    const passport = await WorkerPassport.findOneAndUpdate({ workerId: req.userId }, { $set: { bio: String(req.body.bio || "").slice(0, 800), experienceYears: Math.max(0, Math.min(80, Number(req.body.experienceYears || 0))), languages: Array.isArray(req.body.languages) ? req.body.languages.slice(0, 8).map(String) : [], serviceAreas: Array.isArray(req.body.serviceAreas) ? req.body.serviceAreas.slice(0, 20).map(String) : [], skills } }, { upsert: true, new: true });
-    res.json({ passport: publicPassport(req.user, passport, { ...(await workerStats(req.userId)), rating: req.user.provider?.ratingAvg || 0, verified: !!req.user.provider?.verified }) });
+    const set = {};
+    if (req.body.bio != null) set["provider.passportBio"] = String(req.body.bio).slice(0, 600);
+    if (req.body.experience != null) set["provider.experience"] = String(req.body.experience).slice(0, 80);
+    if (Array.isArray(req.body.languages)) set["provider.languages"] = req.body.languages.map(String).slice(0, 8);
+    if (Array.isArray(req.body.serviceAreas)) set["provider.serviceAreas"] = req.body.serviceAreas.map(String).slice(0, 12);
+    if (!Object.keys(set).length) throw httpError(400, "Nothing to update");
+    const user = await User.findByIdAndUpdate(req.userId, { $set: set }, { new: true }).lean();
+    const pack = await passportBundle(user);
+    res.json({
+      passport: { ...professionalPublic(user, { ...pack.stats, badges: pack.badges }), skills: pack.skills, stats: pack.stats, badges: pack.badges },
+    });
+  })
+);
+
+router.post(
+  "/skills",
+  asyncHandler(async (req, res) => {
+    const name = String(req.body.name || "").trim();
+    if (!name) throw httpError(400, "Skill name is required");
+    const user = await User.findById(req.userId);
+    user.provider = user.provider || {};
+    const skills = user.provider.skills || [];
+    if (skills.some((s) => String(s.name).toLowerCase() === name.toLowerCase())) {
+      throw httpError(409, "That skill is already on your passport");
+    }
+    skills.push({ name, verified: false, pending: false });
+    user.provider.skills = skills;
+    await user.save();
+    res.status(201).json({
+      skills: skills.map((s) => ({ id: String(s._id || s.name), name: s.name, verified: !!s.verified, pending: !!s.pending })),
+    });
   })
 );
 
 router.post(
   "/skills/:id/verify",
   asyncHandler(async (req, res) => {
-    workerOnly(req);
-    const passport = await WorkerPassport.findOne({ workerId: req.userId });
-    const skill = passport?.skills.id(req.params.id);
+    const user = await User.findById(req.userId);
+    const skills = user.provider?.skills || [];
+    const skill = skills.id(req.params.id) || skills.find((s) => String(s._id) === req.params.id || s.name === req.params.id);
     if (!skill) throw httpError(404, "Skill not found");
-    skill.verificationStatus = "pending";
-    skill.verificationRequestedAt = new Date();
-    await passport.save();
-    res.json({ ok: true, status: skill.verificationStatus });
+    if (skill.verified) return res.json({ skill: { id: String(skill._id), name: skill.name, verified: true, pending: false } });
+    skill.pending = true;
+    await user.save();
+    res.json({ skill: { id: String(skill._id), name: skill.name, verified: false, pending: true } });
   })
 );
 
 router.get(
-  "/:id/public-profile",
+  "/badges",
   asyncHandler(async (req, res) => {
-    const user = await User.findOne({ _id: req.params.id, role: "worker", status: "active" }).lean();
-    if (!user) throw httpError(404, "Worker profile not found");
-    const passport = await WorkerPassport.findOne({ workerId: user._id }).lean();
-    res.json({ passport: publicPassport(user, passport, { ...(await workerStats(user._id)), rating: user.provider?.ratingAvg || 0, verified: !!user.provider?.verified }) });
+    const pack = await passportBundle(req.user);
+    res.json({ badges: pack.badges });
   })
 );
 
-export const publicWorkerRoutes = Router();
-publicWorkerRoutes.get(
-  "/:id/public-profile",
+router.get(
+  "/idle-status",
   asyncHandler(async (req, res) => {
-    const user = await User.findOne({ _id: req.params.id, role: "worker", status: "active" }).lean();
-    if (!user) throw httpError(404, "Worker profile not found");
-    const passport = await WorkerPassport.findOne({ workerId: user._id }).lean();
-    res.json({ passport: publicPassport(user, passport, { ...(await workerStats(user._id)), rating: user.provider?.ratingAvg || 0, verified: !!user.provider?.verified }) });
+    const locked = await findWorkerLockedJob(req.userId);
+    if (locked) {
+      return res.json({ idle: false, minutes: 0, estimateInr: 0, message: "You're on an active job.", nextJob: null });
+    }
+    const last = await Request.findOne({
+      providerId: req.userId,
+      $or: [{ paymentStatus: "collected" }, { status: "cancelled" }],
+    })
+      .sort({ updatedAt: -1 })
+      .select("paymentCollectedAt cancelledAt updatedAt")
+      .lean();
+    const from = last?.paymentCollectedAt || last?.cancelledAt || last?.updatedAt;
+    const minutes = from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 60000)) : 0;
+    const target = await getOrCreateTarget(req.userId, req.user.provider?.dailyTargetAmount || 1500);
+    const perMinute = Number(target.amount || 1500) / (8 * 60);
+    const estimateInr = Math.round(minutes * perMinute);
+    const remaining = Math.max(0, target.amount - (await todayEarned(req.userId)));
+    const ranked = rankJobs(req.user, await openJobsFor(req.user), { remaining, sort: "recommended" });
+    const next = ranked[0] ? presentJobCard(ranked[0]) : null;
+    res.json({
+      idle: minutes > 0,
+      minutes,
+      estimateInr,
+      perMinute: Math.round(perMinute * 100) / 100,
+      target: target.amount,
+      message:
+        minutes > 0
+          ? `${minutes} min idle · ≈ ₹${estimateInr} away from today's target`
+          : "You're ready for the next job.",
+      nextJob: next,
+    });
   })
 );
 

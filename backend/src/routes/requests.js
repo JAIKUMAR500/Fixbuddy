@@ -12,7 +12,20 @@ import { ensureConversation } from "../services/chat.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { providerCard, formatWhen, presentRequest } from "../utils/serialize.js";
 import { isAdmin, isCreator, isSeeker } from "../utils/roles.js";
-import { BUSY_JOB_STATUSES, km } from "../utils/geo.js";
+import { BUSY_JOB_STATUSES, LOCKED_JOB_STATUSES, km } from "../utils/geo.js";
+import {
+  DELAY_REASONS,
+  LOCK_MESSAGE,
+  NO_ACCESS_MESSAGE,
+  UNAVAILABLE_MESSAGE,
+  approxCoord,
+  canCancelJob,
+  delayLabel,
+  findCurrentJob,
+  findWorkerLockedJob,
+  lockedJobFilter,
+} from "../utils/jobLock.js";
+import { normalizeLang, translateText } from "../utils/translate.js";
 
 const router = Router();
 
@@ -47,6 +60,23 @@ async function loadPeople(r) {
   };
 }
 
+async function crewTracking(r) {
+  const ids = r.crewMemberIds || [];
+  if (!ids.length) return [];
+  const users = await User.find({ _id: { $in: ids } })
+    .select("name avatar provider")
+    .lean();
+  const status = r.status;
+  const arrived = ["arrived", "otp_verified", "in_progress", "completed", "payment_collected", "customer_completed", "reviewed"].includes(status);
+  const travelling = ["on_the_way", "arrived", "otp_verified", "in_progress", "completed", "payment_collected"].includes(status);
+  return users.map((u) => ({
+    id: String(u._id),
+    name: u.provider?.businessName || u.name,
+    avatar: u.avatar || "",
+    state: arrived ? "arrived" : travelling ? "arriving" : "assigned",
+  }));
+}
+
 function isInvited(doc, userId) {
   return (doc.invitedProviderIds || []).some((id) => String(id) === String(userId));
 }
@@ -55,6 +85,7 @@ function canViewOpenJob(req, doc) {
   if (isAdmin(req.user.role)) return true;
   if (String(doc.customerId) === req.userId) return true;
   if (doc.providerId && String(doc.providerId) === req.userId) return true;
+  if ((doc.crewMemberIds || []).some((id) => String(id) === req.userId)) return true;
   if (isInvited(doc, req.userId)) return true;
   if (isSeeker(req.user.role) && ["matching", "open", "requested"].includes(doc.status)) return true;
   return false;
@@ -64,10 +95,11 @@ router.post(
   "/",
   asyncHandler(async (req, res) => {
     if (!isCreator(req.user.role)) throw httpError(403, "Only customers and businesses can create jobs");
-    const { description, category, address, area, city, timing, publicPost, tags, photos, lat, lng, landmark, voiceNote, estimatedAmount, budgetMin, budgetMax, scheduledAt, scheduledLabel } = req.body || {};
+    const { description, category, address, area, city, timing, publicPost, tags, photos, lat, lng, landmark, voiceNote, estimatedAmount, budgetMin, budgetMax, scheduledAt, scheduledLabel, workersRequired, crewId, tower, flat, gateNote, visitorName, pinCode, preferredProviderId } = req.body || {};
     if (!description || !category) throw httpError(400, "Description and category are required");
     const amount = Number(estimatedAmount || budgetMax || budgetMin || 0);
     const postedByRole = req.user.role === "admin" ? "admin" : req.user.role === "business" || req.user.role === "provider" ? "business" : "customer";
+    const customerLanguage = normalizeLang(req.body.customerLanguage || req.user.lang);
     const doc = await Request.create({
       code: await nextCode(),
       customerId: req.userId,
@@ -76,7 +108,7 @@ router.post(
       category,
       address: address || req.user.address || "",
       area: area || req.user.area || "",
-      city: city || req.user.city || "Coimbatore",
+      city: city || req.user.city || "",
       landmark: landmark || "",
       lat: lat != null ? Number(lat) : req.user.lat,
       lng: lng != null ? Number(lng) : req.user.lng,
@@ -90,9 +122,21 @@ router.post(
       budgetMax: Number(budgetMax || amount || 0),
       tags: tags || [],
       publicPost: publicPost !== false,
+      workersRequired: Math.min(12, Math.max(1, Number(workersRequired || 1))),
+      crewId: crewId || null,
+      tower: String(tower || "").slice(0, 40),
+      flat: String(flat || "").slice(0, 40),
+      gateNote: String(gateNote || "").slice(0, 240),
+      visitorName: String(visitorName || req.user.name || "").slice(0, 80),
+      pinCode: String(pinCode || "").replace(/\D/g, "").slice(0, 6),
+      preferredProviderId: preferredProviderId || null,
+      customerLanguage,
       status: "matching",
       timeline: [{ status: "matching", note: "Job posted", at: new Date() }],
     });
+    if (preferredProviderId) {
+      doc.invitedProviderIds = [preferredProviderId];
+    }
 
     const scored = await matchProviders(doc);
     doc.matches = scored.map((s) => ({
@@ -112,6 +156,13 @@ router.post(
         requestId: doc._id,
       }
     );
+    if (preferredProviderId) {
+      await notify(preferredProviderId, {
+        type: "request",
+        text: `${req.user.name} wants to book you again for ${category}. Accept to take this job.`,
+        requestId: doc._id,
+      });
+    }
 
     res.status(201).json({
       request: presentRequest(doc, {
@@ -149,6 +200,7 @@ router.get(
         };
         filter.$or = [
           { providerId: req.userId, status: { $in: ["requested", ...BUSY_JOB_STATUSES, "completed"] } },
+          { crewMemberIds: req.userId, status: { $in: ["requested", ...BUSY_JOB_STATUSES, "completed"] } },
           openJobs,
         ];
       } else {
@@ -200,13 +252,57 @@ router.get(
 );
 
 router.get(
+  "/current-job",
+  asyncHandler(async (req, res) => {
+    const doc = await findCurrentJob(req.user, req.userId);
+    if (!doc) return res.json({ request: null, locked: false });
+    const extras = await loadPeople(doc);
+    extras.revealOtp = String(doc.customerId) === req.userId;
+    extras.hideGate = isCreator(req.user.role) && !isSeeker(req.user.role) ? false : String(doc.providerId) !== req.userId && !(doc.crewMemberIds || []).some((id) => String(id) === req.userId);
+    res.json({ request: presentRequest(doc, extras), locked: true });
+  })
+);
+
+router.get(
+  "/price-band",
+  asyncHandler(async (req, res) => {
+    const city = String(req.query.city || req.user.city || "").trim();
+    const category = String(req.query.category || "").trim();
+    const pinCode = String(req.query.pinCode || "").replace(/\D/g, "").slice(0, 6);
+    const match = {
+      paymentStatus: "collected",
+      ...(city ? { city: new RegExp(`^${city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } : {}),
+      ...(category ? { category: new RegExp(category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") } : {}),
+      ...(pinCode ? { pinCode } : {}),
+    };
+    const rows = await Request.find(match).select("estimatedAmount workerQuote").limit(80).lean();
+    const amounts = rows.map((r) => Number(r.workerQuote || r.estimatedAmount || 0)).filter((n) => n > 0).sort((a, b) => a - b);
+    if (amounts.length < 3) {
+      return res.json({ city, category, pinCode, min: null, max: null, sample: amounts.length, text: "" });
+    }
+    const min = amounts[Math.floor(amounts.length * 0.2)];
+    const max = amounts[Math.floor(amounts.length * 0.8)];
+    res.json({
+      city,
+      category,
+      pinCode,
+      min,
+      max,
+      sample: amounts.length,
+      text: `Usual price in your area: ₹${min}–₹${max}`,
+    });
+  })
+);
+
+router.get(
   "/:id",
   asyncHandler(async (req, res) => {
     const doc = await Request.findById(req.params.id).lean();
     if (!doc) throw httpError(404, "Request not found");
-    if (!canViewOpenJob(req, doc)) throw httpError(403, "You do not have access to this request");
+    if (!canViewOpenJob(req, doc)) throw httpError(403, NO_ACCESS_MESSAGE);
     const extras = await loadPeople(doc);
     extras.revealOtp = String(doc.customerId) === req.userId;
+    if (doc.crewId) extras.crewMembers = await crewTracking(doc);
     if (req.query.matches === "true") {
       const ids = (doc.matches || []).map((m) => m.providerId);
       const users = await User.find({ _id: { $in: ids } }).lean();
@@ -275,7 +371,7 @@ router.post(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Only workers can send a quote");
     const doc = await Request.findById(req.params.id);
     if (!doc) throw httpError(404, "Request not found");
-    if (!canViewOpenJob(req, doc)) throw httpError(403, "You do not have access to this request");
+    if (!canViewOpenJob(req, doc)) throw httpError(403, NO_ACCESS_MESSAGE);
     const amount = Number(req.body.amount);
     if (!amount || amount < 1) throw httpError(400, "Enter a valid amount");
     doc.workerQuote = amount;
@@ -295,11 +391,10 @@ router.post(
   "/:id/accept",
   asyncHandler(async (req, res) => {
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Only workers can take jobs");
-    const busy = await Request.findOne({
-      providerId: req.userId,
-      status: { $in: BUSY_JOB_STATUSES },
-    }).select("_id").lean();
-    if (busy) throw httpError(409, "Finish your current job before accepting another.");
+    if (req.user.provider?.available === false) throw httpError(409, "Go online before accepting a job.");
+    const busy = await findWorkerLockedJob(req.userId);
+    if (busy && String(busy._id) !== String(req.params.id)) throw httpError(409, LOCK_MESSAGE);
+    const workerLanguage = normalizeLang(req.user.lang);
     const taken = await Request.findOneAndUpdate(
       {
         _id: req.params.id,
@@ -308,7 +403,12 @@ router.post(
         $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: req.userId }],
       },
       {
-        $set: { providerId: req.userId, status: "accepted" },
+        $set: {
+          providerId: req.userId,
+          status: "accepted",
+          acceptedAt: new Date(),
+          workerLanguage,
+        },
         $push: { timeline: { status: "accepted", note: "First worker to accept took this job", at: new Date() } },
       },
       { new: true }
@@ -319,12 +419,28 @@ router.post(
       if (existing.providerId && String(existing.providerId) !== req.userId) {
         throw httpError(409, "Another worker already accepted this job.");
       }
-      throw httpError(409, "This job is no longer available.");
+      throw httpError(409, UNAVAILABLE_MESSAGE);
     }
+    const lockCount = await Request.countDocuments(lockedJobFilter(req.userId));
+    if (lockCount > 1) {
+      await Request.updateOne(
+        { _id: taken._id, providerId: req.userId, status: "accepted" },
+        {
+          $set: { providerId: null, status: "open", acceptedAt: null },
+          $push: { timeline: { status: "open", note: "Accept rolled back — worker already has an active job", at: new Date() } },
+        }
+      );
+      throw httpError(409, LOCK_MESSAGE);
+    }
+    const customer = await User.findById(taken.customerId).select("lang").lean();
+    const customerLanguage = normalizeLang(taken.customerLanguage || customer?.lang);
+    taken.customerLanguage = customerLanguage;
+    taken.translatedDescription = translateText(taken.description, customerLanguage, workerLanguage);
+    await taken.save();
     await ensureConversation(taken);
     await notify(taken.customerId, {
       type: "success",
-      text: `${req.user.provider?.businessName || req.user.name} accepted your job and is getting ready to come`,
+      text: `${req.user.provider?.businessName || req.user.name} accepted your job`,
       requestId: taken._id,
     });
     const others = (taken.invitedProviderIds || []).map(String).filter((id) => id !== req.userId);
@@ -334,6 +450,7 @@ router.post(
       requestId: taken._id,
     });
     const extras = await loadPeople(taken.toObject());
+    extras.revealOtp = false;
     res.json({ request: presentRequest(taken, extras) });
   })
 );
@@ -544,7 +661,55 @@ router.post(
       status: "paid",
       note: "Job payment collected",
     });
-    await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
+    if (doc.crewId && (doc.crewMemberIds || []).length) {
+      try {
+        const { Crew } = await import("../models/Crew.js");
+        const { getSettings } = await import("../models/PlatformSettings.js");
+        const { crewSplit } = await import("../utils/workerPower.js");
+        const crew = await Crew.findById(doc.crewId).lean();
+        const settings = await getSettings();
+        if (crew) {
+          const split = crewSplit(amount, crew, settings.commissionPercent);
+          await Crew.updateOne({ _id: crew._id }, { $inc: { completedJobs: 1 } });
+          for (const s of split.shares) {
+            await User.updateOne({ _id: s.userId }, { $inc: { walletBalance: s.amount } });
+          }
+          await notify(doc.customerId, {
+            type: "success",
+            text: `Team payment ₹${split.gross}. Platform fee ₹${split.fee}. Team earnings ₹${split.net}.`,
+            requestId: doc._id,
+          });
+        } else {
+          await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
+        }
+      } catch {
+        await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
+      }
+    } else {
+      await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
+    }
+    const helpers = (doc.crewMemberIds || []).map(String).filter((id) => id !== String(doc.providerId));
+    if (helpers.length) {
+      await notifyMany(helpers, {
+        type: "info",
+        text: "Crew job paid. You're available for helper jobs like loading, shifting, or cleaning assistance.",
+        requestId: doc._id,
+      });
+    }
+    try {
+      const { getOrCreateTarget, todayEarned } = await import("../utils/workerPower.js");
+      const target = await getOrCreateTarget(doc.providerId, 1500);
+      const earned = await todayEarned(doc.providerId);
+      if (earned >= target.amount && earned - amount < target.amount) {
+        await notify(doc.providerId, {
+          type: "success",
+          text: `Daily target achieved! You earned ₹${earned} today (target ₹${target.amount}).`,
+          requestId: doc._id,
+        });
+      }
+    } catch {
+      /* target notify is optional */
+    }
     await notify(doc.customerId, {
       type: "success",
       text: `Payment of ₹${amount} confirmed. Mark the request complete and leave a review.`,
@@ -582,26 +747,13 @@ router.post(
     if (!doc) throw httpError(404, "Request not found");
     const isOwner = String(doc.customerId) === req.userId || String(doc.providerId) === req.userId;
     if (!isOwner && !isAdmin(req.user.role)) throw httpError(403, "Not allowed");
-    if (["completed", "payment_collected", "customer_completed", "reviewed", "cancelled"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
-    const settings = await getSettings();
-    const policy = settings.cancellationPolicy || {};
-    const customerCancelled = String(doc.customerId) === req.userId;
-    const travelEvent = [...(doc.timeline || [])].reverse().find((item) => item.status === "on_the_way");
-    const travelStartedAt = travelEvent?.at ? new Date(travelEvent.at).getTime() : 0;
-    const travelled = ["on_the_way", "arrived", "otp_verified", "in_progress"].includes(doc.status) && travelStartedAt > 0 && Date.now() - travelStartedAt >= Number(policy.workerTravelAfterMinutes || 0) * 60 * 1000;
-    const eligible = customerCancelled && !!doc.providerId && travelled && policy.customerCancelAfterAccept !== false;
-    const amount = eligible ? Number(policy.workerTravelCompensation || 0) : 0;
-    const cancellation = await Cancellation.create({ requestId: doc._id, actorId: req.userId, actorRole: req.user.role, reason: String(req.body.reason || "other").slice(0, 120), eligible, amount, status: eligible && amount > 0 ? "paid" : "not_eligible", policyVersion: policy.version || "v1" });
-    pushTimeline(doc, "cancelled", `${req.body.reason || "Cancelled"}${eligible ? ` · Worker compensation ₹${amount}` : ""}`);
+    if (["completed", "payment_collected", "customer_completed", "reviewed"].includes(doc.status)) throw httpError(400, "Cannot cancel a finished job");
+    pushTimeline(doc, "cancelled", req.body.reason || "Cancelled");
     await doc.save();
-    if (eligible && amount > 0) {
-      await Transaction.create({ code: `CMP-${cancellation._id}`, requestId: doc._id, fromId: doc.customerId, toId: doc.providerId, amount, kind: "payout", status: "paid", note: "Customer cancellation travel compensation" });
-      await User.updateOne({ _id: doc.providerId }, { $inc: { walletBalance: amount } });
-    }
     const other = String(doc.customerId) === req.userId ? doc.providerId : doc.customerId;
-    await notify(other, { type: eligible ? "success" : "info", text: eligible ? `Job cancelled. Worker travel compensation ₹${amount} was recorded.` : "A job was cancelled", requestId: doc._id });
+    await notify(other, { type: "info", text: "A job was cancelled", requestId: doc._id });
     const extras = await loadPeople(doc.toObject());
-    res.json({ request: presentRequest(doc, extras) });
+    res.json({ request: presentRequest(doc, extras), compensation, eligible });
   })
 );
 
@@ -652,6 +804,95 @@ router.post(
     }
     await notify(doc.providerId, { type: "review", text: `${req.user.name} left a ${rating}-star review`, requestId: doc._id });
     const extras = await loadPeople(doc.toObject());
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/watch-link",
+  asyncHandler(async (req, res) => {
+    if (!isCreator(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Job creators only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!LOCKED_JOB_STATUSES.includes(doc.status) && !BUSY_JOB_STATUSES.includes(doc.status) && !["matching", "open", "requested"].includes(doc.status)) {
+      throw httpError(400, "A watch link is only available while this job is open or active.");
+    }
+    const token = crypto.randomBytes(24).toString("hex");
+    doc.watchToken = token;
+    doc.watchTokenExpiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    await doc.save();
+    res.json({
+      token,
+      expiresAt: doc.watchTokenExpiresAt,
+      path: `/watch/${token}`,
+    });
+  })
+);
+
+router.delete(
+  "/:id/watch-link",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    doc.watchToken = "";
+    doc.watchTokenExpiresAt = null;
+    await doc.save();
+    res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/:id/work-photos",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    const stage = String(req.body.stage || "").toLowerCase();
+    if (!["before", "during", "after"].includes(stage)) throw httpError(400, "Upload a before, during, or after photo.");
+    const url = String(req.body.url || "").trim();
+    if (!url) throw httpError(400, "Photo is required");
+    doc.workPhotos = doc.workPhotos || { before: [], during: [], after: [] };
+    const list = [...(doc.workPhotos[stage] || []), url].slice(-8);
+    doc.workPhotos[stage] = list;
+    doc.markModified("workPhotos");
+    doc.timeline.push({ status: doc.status, note: `Work photo added (${stage})`, at: new Date() });
+    await doc.save();
+    const extras = await loadPeople(doc.toObject());
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/delay",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!["accepted", "scheduled", "on_the_way"].includes(doc.status)) {
+      throw httpError(400, "Delays can only be reported while travelling to the job.");
+    }
+    const reason = String(req.body.reason || "").toUpperCase();
+    if (!DELAY_REASONS.includes(reason)) throw httpError(400, "Choose a valid delay reason.");
+    doc.delayReason = reason;
+    doc.delayNote = String(req.body.note || "").slice(0, 200);
+    doc.timeline.push({
+      status: doc.status,
+      note: `Delay reported: ${delayLabel(reason)}`,
+      at: new Date(),
+    });
+    await doc.save();
+    const extras = await loadPeople(doc.toObject());
+    const dist = km(doc.lat, doc.lng, doc.workerLat, doc.workerLng);
+    const etaMin = dist != null ? Math.max(1, Math.round((dist / 18) * 60)) : null;
+    await notify(doc.customerId, {
+      type: "info",
+      text: etaMin
+        ? `Worker is delayed due to ${delayLabel(reason)}. Updated ETA: ${etaMin} minutes.`
+        : `Worker is delayed due to ${delayLabel(reason)}.`,
+      requestId: doc._id,
+    });
     res.json({ request: presentRequest(doc, extras) });
   })
 );

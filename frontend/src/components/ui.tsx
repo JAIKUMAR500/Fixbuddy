@@ -122,9 +122,11 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function Card({ children, className = "", padding = "md", ...props }: CardProps) {
   const pads = { none: "", sm: "p-3", md: "p-4", lg: "p-6" };
+  const customBg = /(^|\s)(!?bg-)/.test(className);
+  const customBorder = /(^|\s)border-/.test(className);
   return (
     <div
-      className={`bg-white rounded-2xl border border-slate-200 shadow-sm ${pads[padding]} ${className}`}
+      className={`rounded-2xl shadow-sm ${pads[padding]} ${customBg ? "" : "bg-white"} ${customBorder ? "border" : "border border-slate-200"} ${className}`}
       {...props}
     >
       {children}

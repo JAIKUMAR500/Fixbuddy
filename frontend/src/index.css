@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 @theme {
@@ -30,14 +29,14 @@
 
 html, body, #root {
   height: 100%;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', 'Noto Sans Devanagari', 'Noto Sans Tamil', sans-serif;
   background-color: var(--background);
   color: var(--foreground);
 }
 
 * { box-sizing: border-box; }
 
-.font-display { font-family: 'Outfit', sans-serif; }
+.font-display { font-family: 'Outfit', 'Noto Sans Devanagari', 'Noto Sans Tamil', sans-serif; }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -89,6 +88,10 @@ html, body, #root {
 
 .hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -12px rgb(0 86 210 / 0.28); }
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
 
 .trend-stroke {
   stroke-dasharray: 1200;

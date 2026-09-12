@@ -3,15 +3,17 @@ import { MapPin, Clock, DollarSign, CheckCircle, X, Phone, MessageSquare, Play, 
 import { View } from "../../types";
 import { Card, EmptyState, Skeleton } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
+import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { useApp, useFetch } from "../../api/AppContext";
-import { startCall } from "../../api/phone";
+import { canCancelJob, jobError } from "../../api/jobLock";
+import { openMapsNav } from "../../api/geo";
 
 const OPEN = ["open", "requested", "matching"];
 const ACTIVE = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"];
 
 export default function WorkRequests({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, user } = useApp();
+  const { setActiveRequestId, user, refreshCurrentJob } = useApp();
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests?inbox=true");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
@@ -46,14 +48,24 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
         return;
       }
       else if (kind === "decline") await RequestAPI.decline(id);
-      else if (kind === "enroute") await RequestAPI.enroute(id, await loc());
+      else if (kind === "enroute") {
+        const here = await loc();
+        await RequestAPI.enroute(id, here);
+        const row = requests.find((r) => r.id === id);
+        if (row?.lat != null && row?.lng != null) openMapsNav({ lat: row.lat, lng: row.lng }, here);
+      }
       else if (kind === "arrive") await RequestAPI.arrive(id, await loc());
       else if (kind === "start") await RequestAPI.start(id);
       else if (kind === "collect") await RequestAPI.collectPayment(id);
       else await RequestAPI.complete(id);
+      if (kind === "accept") {
+        setActiveRequestId(id);
+        navigate("active-job");
+        return;
+      }
       reload();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Action failed");
+      setActionError(jobError(e));
     } finally {
       setBusy(null);
     }
@@ -95,7 +107,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
         </h1>
         <p className="text-slate-500 text-sm mt-1">
           {mustFinish
-            ? "Finish this job, then the next one opens."
+            ? "You're handling an active job. Complete or cancel this job before accepting another."
             : "Accept → On the way → Arrived → OTP → Start → Complete. First to accept gets the job."}
         </p>
       </div>
@@ -113,23 +125,59 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       )}
 
       {job && (
-        <ActiveJobCard
-          req={job}
-          busy={busy === job.id}
-          onAction={(kind) => void act(job.id, kind)}
-          onCall={() => startCall(job.customer?.phone)}
-          onChat={() => void openChat(job.id)}
-          onDetails={() => {
-            setActiveRequestId(job.id);
-            navigate("job-details");
-          }}
-        />
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveRequestId(job.id);
+              navigate("active-job");
+            }}
+            className="w-full rounded-2xl bg-slate-900 text-white px-4 py-4 text-left"
+          >
+            <p className="text-[11px] uppercase tracking-wider text-sky-200">You have an active job</p>
+            <p className="font-semibold mt-1">{job.category} · {job.status.replace(/_/g, " ")}</p>
+            <p className="text-sm text-sky-200 mt-1">Open active job</p>
+          </button>
+          {canCancelJob(job.status) && (
+            <CancelJobPanel
+              worker
+              policy={job.cancelPolicy}
+              busy={busy === job.id}
+              onCancel={(reason) =>
+                void (async () => {
+                  setBusy(job.id);
+                  setActionError("");
+                  try {
+                    await RequestAPI.cancel(job.id, { reason });
+                    await refreshCurrentJob();
+                    reload();
+                  } catch (e) {
+                    setActionError(jobError(e));
+                  } finally {
+                    setBusy(null);
+                  }
+                })()
+              }
+            />
+          )}
+        </div>
       )}
 
       {mustFinish && available.length > 0 && (
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-          {available.length} more job{available.length === 1 ? "" : "s"} waiting. They unlock after you complete this work order.
+          {available.length} more job{available.length === 1 ? "" : "s"} nearby. You're handling an active job — complete or cancel it before accepting another.
         </p>
+      )}
+
+      {!mustFinish && (
+        <button
+          type="button"
+          onClick={() => navigate("worker-next-jobs")}
+          className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left"
+        >
+          <p className="font-semibold text-amber-900">🎯 Find your next job</p>
+          <p className="text-xs text-amber-800 mt-0.5">Nearby work ranked by skill, distance and today's remaining target.</p>
+        </button>
       )}
 
       {!mustFinish && available.length > 0 && (
@@ -158,6 +206,7 @@ function ActiveJobCard({
   onCall,
   onChat,
   onDetails,
+  onSafety,
 }: {
   req: JobRequest;
   busy: boolean;
@@ -165,6 +214,7 @@ function ActiveJobCard({
   onCall: () => void;
   onChat: () => void;
   onDetails: () => void;
+  onSafety: () => void;
 }) {
   const action = jobPrimaryAction(req.status);
   return (
@@ -214,7 +264,7 @@ function ActiveJobCard({
             <Wallet className="w-5 h-5" /> Confirm payment ₹{req.workerQuote || req.estimatedAmount || 0}
           </button>
         )}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           <button type="button" onClick={onCall} className="min-h-12 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 flex items-center justify-center gap-1.5">
             <Phone className="w-4 h-4" /> Call
           </button>
@@ -223,6 +273,9 @@ function ActiveJobCard({
           </button>
           <button type="button" onClick={onDetails} className="min-h-12 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 flex items-center justify-center gap-1.5">
             Track <ChevronRight className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={onSafety} className="min-h-12 rounded-xl border border-red-200 text-red-600 font-semibold hover:bg-red-50 flex items-center justify-center gap-1.5">
+            <Flag className="w-4 h-4" /> Safety
           </button>
         </div>
       </div>
@@ -285,12 +338,19 @@ function OfferCard({
 }
 
 function Meta({ req }: { req: JobRequest }) {
+  const hasPin = req.lat != null && req.lng != null;
   return (
     <div className="grid grid-cols-3 gap-2 text-xs">
-      <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+      <button
+        type="button"
+        disabled={!hasPin}
+        onClick={() => hasPin && openMapsNav({ lat: req.lat as number, lng: req.lng as number })}
+        className="rounded-xl bg-slate-50 px-3 py-2.5 text-left disabled:opacity-100"
+      >
         <p className="text-slate-400 font-medium mb-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location</p>
         <p className="font-semibold text-slate-800 truncate">{req.area || req.city}</p>
-      </div>
+        {hasPin && <p className="text-[10px] text-brand font-semibold mt-0.5">Open Google Maps</p>}
+      </button>
       <div className="rounded-xl bg-slate-50 px-3 py-2.5">
         <p className="text-slate-400 font-medium mb-0.5 flex items-center gap-1"><Clock className="w-3 h-3" /> When</p>
         <p className="font-semibold text-slate-800 truncate">{req.scheduledLabel || req.timing}</p>

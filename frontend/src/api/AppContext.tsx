@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { ApiError, AppUser, AuthAPI, NotifAPI, Provider as ApiProvider, api, type AppNotif, type JobRequest } from "./client";
+import { AppUser, AuthAPI, JobRequest, Provider as ApiProvider, RequestAPI, api } from "./client";
 import { View } from "../types";
 import { roleHome } from "./roles";
 import { readGps } from "./geo";
+import { isEngagedStatus } from "./jobLock";
 
 async function refreshLocation(current: AppUser, apply: (u: AppUser) => void) {
   if (current.lat != null && current.lng != null) return;
@@ -29,6 +30,8 @@ type Ctx = {
   setSelectedProvider: (p: ApiProvider | null) => void;
   activeRequestId: string | null;
   setActiveRequestId: (id: string | null) => void;
+  currentJob: JobRequest | null;
+  refreshCurrentJob: () => Promise<JobRequest | null>;
   login: (email: string, password: string, role?: string) => Promise<AppUser>;
   signup: (body: object) => Promise<AppUser>;
   googleLogin: (credential: string, role?: string) => Promise<AppUser>;
@@ -40,6 +43,7 @@ type Ctx = {
 
 const AppContext = createContext<Ctx | null>(null);
 
+const SKIP_JOB_REDIRECT: View[] = ["public-passport", "family-watch", "business-onboarding", "worker-safety", "customer-support", "customer-profile", "business-profile", "worker-passport"];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -48,20 +52,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [requestData, setRequestData] = useState<Ctx["requestData"]>({});
   const [selectedProvider, setSelectedProvider] = useState<ApiProvider | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const navigate = useCallback((v: View) => {
     setView(v);
     window.scrollTo(0, 0);
   }, []);
 
+  const refreshCurrentJob = useCallback(async () => {
+    if (!localStorage.getItem("fb_token")) {
+      setCurrentJob(null);
+      return null;
+    }
+    try {
+      const { request } = await RequestAPI.currentJob();
+      setCurrentJob(request);
+      if (request && isEngagedStatus(request.status)) setActiveRequestId(request.id);
+      return request;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const goHomeOrJob = useCallback(
+    async (u: AppUser, forceJob: boolean) => {
+      const needsOnboard =
+        (u.role === "worker" || u.role === "business" || u.role === "provider") && !u.provider?.onboarded;
+      if (needsOnboard) {
+        navigate("business-onboarding");
+        return;
+      }
+      const job = await refreshCurrentJob();
+      if (job && isEngagedStatus(job.status) && (forceJob || SKIP_JOB_REDIRECT.indexOf(view) < 0)) {
+        setActiveRequestId(job.id);
+        navigate("active-job");
+        return;
+      }
+      navigate(roleHome(u));
+    },
+    [navigate, refreshCurrentJob, view]
+  );
+
   const routeAfterAuth = useCallback(
     (u: AppUser) => {
       setUser(u);
-      navigate(roleHome(u));
+      void goHomeOrJob(u, true);
       void refreshLocation(u, setUser);
     },
-    [navigate]
+    [goHomeOrJob]
   );
 
   const login = useCallback(
@@ -98,6 +135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("fb_token");
     setUser(null);
     setActiveRequestId(null);
+    setCurrentJob(null);
     setSelectedProvider(null);
     setUnreadNotifications(0);
     navigate("landing");
@@ -105,13 +143,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const token = localStorage.getItem("fb_token");
+    const qs = new URLSearchParams(window.location.search);
+    const pro = qs.get("pro");
+    const watch = qs.get("watch");
     if (!token) {
+      if (watch) setView("family-watch");
+      else if (pro) setView("public-passport");
       setReady(true);
       return;
     }
     AuthAPI.me()
-      .then(({ user: u }) => {
+      .then(async ({ user: u }) => {
         setUser(u);
+        if (watch) {
+          setView("family-watch");
+          return;
+        }
+        if (pro) {
+          setView("public-passport");
+          return;
+        }
+        const needsOnboard =
+          (u.role === "worker" || u.role === "business" || u.role === "provider") && !u.provider?.onboarded;
+        if (needsOnboard) {
+          setView("business-onboarding");
+          return;
+        }
+        try {
+          const { request } = await RequestAPI.currentJob();
+          setCurrentJob(request);
+          if (request && isEngagedStatus(request.status)) {
+            setActiveRequestId(request.id);
+            setView("active-job");
+            return;
+          }
+        } catch {
+          /* keep home */
+        }
         setView(roleHome(u));
         void refreshLocation(u, setUser);
       })
@@ -123,7 +191,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         localStorage.removeItem("fb_token");
         setUser(null);
-        setView("login");
+        setView(watch ? "family-watch" : pro ? "public-passport" : "login");
       })
       .finally(() => setReady(true));
   }, []);
@@ -180,23 +248,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user || user.role !== "worker") return;
-    const ping = async () => {
-      try {
-        const pos = await readGps();
-        const { user: next } = await AuthAPI.updateMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setUser(next);
-      } catch {
-        /* GPS optional while idle */
-      }
-    };
-    const start = window.setTimeout(() => void ping(), 20000);
-    const t = window.setInterval(() => void ping(), 120000);
-    return () => {
-      window.clearTimeout(start);
-      window.clearInterval(t);
-    };
-  }, [user?.id, user?.role]);
+    if (!user) return;
+    const t = window.setInterval(() => void refreshCurrentJob(), 12000);
+    return () => window.clearInterval(t);
+  }, [user, refreshCurrentJob]);
 
   const value = useMemo(
     () => ({
@@ -210,6 +265,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSelectedProvider,
       activeRequestId,
       setActiveRequestId,
+      currentJob,
+      refreshCurrentJob,
       login,
       signup,
       googleLogin,
@@ -218,7 +275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       routeAfterAuth,
       unreadNotifications,
     }),
-    [user, ready, view, navigate, requestData, selectedProvider, activeRequestId, login, signup, googleLogin, logout, routeAfterAuth, unreadNotifications]
+    [user, ready, view, navigate, requestData, selectedProvider, activeRequestId, login, signup, googleLogin, logout, routeAfterAuth]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

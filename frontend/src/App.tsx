@@ -39,8 +39,6 @@ import { FavoritesPage, LicensePage, LiveAnalytics, LiveWallet, SupportPage } fr
 import AccountSettings from "./pages/shared/AccountSettings";
 import AiRecommend from "./pages/shared/AiRecommend";
 import TeamPage from "./pages/business/TeamPage";
-import WorkerPassportPage from "./pages/business/WorkerPassport";
-import PublicWorkerProfile from "./pages/PublicWorkerProfile";
 
 class RouteErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -68,7 +66,7 @@ function Shell() {
   const { setLang } = useLang();
 
   React.useEffect(() => {
-    if (user?.lang === "en" || user?.lang === "ta") setLang(user.lang);
+    if (user?.lang === "ta" || user?.lang === "hi") setLang(user.lang);
   }, [user?.lang, setLang]);
 
   React.useEffect(() => {
@@ -92,6 +90,8 @@ function Shell() {
   if (view === "signup") return <Auth mode="signup" navigate={navigate} />;
   if (view === "admin-login") return <AdminLogin navigate={navigate} />;
   if (view === "business-landing") return <BusinessLanding navigate={navigate} />;
+  if (view === "public-passport") return <PublicPassport navigate={navigate} />;
+  if (view === "family-watch") return <FamilyWatch navigate={navigate} />;
   if (view === "business-onboarding") return <BusinessOnboarding navigate={navigate} />;
   if (view === "finding-solutions" && (user?.role === "customer" || isBusiness(user?.role) || user?.role === "admin")) return <FindingSolutions navigate={navigate} />;
   if (view === "create-request" && (user?.role === "customer" || isBusiness(user?.role) || user?.role === "admin")) {
@@ -119,6 +119,7 @@ function Shell() {
     return wrap(
       <>
         {view === "customer-home" && <CustomerHome navigate={navigate} />}
+        {view === "active-job" && <ActiveJob navigate={navigate} />}
         {view === "matched-providers" && <MatchedProviders navigate={navigate} onSelectProvider={setSelectedProvider} />}
         {view === "provider-details" && <ProviderDetails navigate={navigate} provider={selectedProvider} />}
         {view === "request-status" && <RequestStatus navigate={navigate} />}
@@ -134,6 +135,7 @@ function Shell() {
         {view === "customer-settings" && <AccountSettings />}
         {view === "customer-notifications" && <CustomerNotifications navigate={navigate} />}
         {view === "ai-recommend" && <AiRecommend />}
+        {view === "find-crew" && <FindCrew navigate={navigate} />}
       </>
     );
   }
@@ -142,6 +144,7 @@ function Shell() {
     return wrap(
       <>
         {view === "business-dashboard" && <BusinessDashboard navigate={navigate} />}
+        {view === "active-job" && <ActiveJob navigate={navigate} />}
         {view === "work-requests" && <WorkRequests navigate={navigate} />}
         {view === "my-jobs" && <MyJobs navigate={navigate} />}
         {view === "job-details" && <RequestStatus navigate={navigate} />}
@@ -156,8 +159,6 @@ function Shell() {
         {view === "provider-settings" && <AccountSettings />}
         {view === "worker-license" && <LicensePage />}
         {view === "worker-wallet" && <LiveWallet />}
-        {view === "worker-passport" && <WorkerPassportPage />}
-        {view === "business-team" && <TeamPage />}
         {view === "ai-recommend" && <AiRecommend />}
       </>
     );
@@ -167,6 +168,7 @@ function Shell() {
     return wrap(
       <>
         {view === "business-dashboard" && <BusinessDashboard navigate={navigate} />}
+        {view === "active-job" && <ActiveJob navigate={navigate} />}
         {view === "my-jobs" && <MyJobs navigate={navigate} />}
         {view === "job-details" && <RequestStatus navigate={navigate} />}
         {view === "matched-providers" && <MatchedProviders navigate={navigate} onSelectProvider={setSelectedProvider} />}
@@ -184,6 +186,7 @@ function Shell() {
         {view === "business-license" && <LicensePage />}
         {view === "business-wallet" && <LiveWallet />}
         {view === "ai-recommend" && <AiRecommend />}
+        {view === "find-crew" && <FindCrew navigate={navigate} />}
       </>
     );
   }

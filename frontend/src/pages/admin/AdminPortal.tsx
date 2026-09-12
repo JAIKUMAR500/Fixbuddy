@@ -26,6 +26,7 @@ import {
   type AdminTxn,
   type ServiceCategory,
   type UserLicense,
+  type WorkerCrew,
   uploadImage,
 } from "../../api/client";
 import { Badge, Button, Card, Input, Skeleton, StatusBadge } from "../../components/ui";
@@ -71,6 +72,8 @@ const TITLES: Partial<Record<View, string>> = {
   "admin-users": "Admin Users",
   "admin-audit": "Audit Logs",
   "admin-licenses": "Login Licenses",
+  "admin-safety": "Worker safety",
+  "admin-crews": "Worker teams",
 };
 
 function money(n: number) {
@@ -110,7 +113,8 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
   const [adminMsg, setAdminMsg] = useState("");
   const [pendingMail, setPendingMail] = useState(0);
   const [mailMsg, setMailMsg] = useState("");
-  const [skillRows, setSkillRows] = useState<{ id: string; workerId: string; worker: string; email: string; name: string; level: string }[]>([]);
+  const [incidents, setIncidents] = useState<{ id: string; type: string; status: string; description: string; createdAt: string; workerId: string }[]>([]);
+  const [crews, setCrews] = useState<WorkerCrew[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -153,6 +157,8 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
         setPendingMail(pack.pendingMail || 0);
       }
       if (view === "admin" || view === "admin-analytics") setAnalytics(await AdminAPI.analytics());
+      if (view === "admin-safety") setIncidents((await AdminAPI.safety()).incidents);
+      if (view === "admin-crews") setCrews((await AdminAPI.crews()).crews);
       if (view === "admin-licenses") setLicenseRows((await AdminAPI.licenses()).licenses);
       if (view === "admin-notifications") setNotifs((await AdminAPI.notifications()).notifications);
       if (view === "admin-verification") setSkillRows((await AdminAPI.skillVerification()).skills);
@@ -525,6 +531,56 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
         </Card>
       )}
 
+      {view === "admin-safety" && (
+        <Card padding="none">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>{["When", "Type", "Status", "Notes", "Action"].map((h) => <th key={h} className="text-left px-4 py-3">{h}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {incidents.map((i) => (
+                <tr key={i.id}>
+                  <td className="px-4 py-3">{when(i.createdAt)}</td>
+                  <td className="px-4 py-3 capitalize">{i.type.replace(/_/g, " ")}</td>
+                  <td className="px-4 py-3"><StatusBadge status={i.status} /></td>
+                  <td className="px-4 py-3 text-slate-600">{i.description || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void AdminAPI.patchSafety(i.id, { status: "reviewing" }).then(() => load())}>Review</Button>
+                      <Button size="sm" onClick={() => void AdminAPI.patchSafety(i.id, { status: "resolved" }).then(() => load())}>Resolve</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!incidents.length && (
+                <tr><td className="px-4 py-6 text-slate-500" colSpan={5}>No safety incidents.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {view === "admin-crews" && (
+        <div className="space-y-3">
+          {crews.map((c) => (
+            <Card key={c.id} padding="md" className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">{c.name}</p>
+                <p className="text-xs text-slate-500">{c.activeCount} members · {c.completedJobs} jobs · {c.status}</p>
+              </div>
+              <Button
+                size="sm"
+                variant={c.status === "suspended" ? "primary" : "outline"}
+                onClick={() => void AdminAPI.patchCrew(c.id, { status: c.status === "suspended" ? "active" : "suspended" }).then(() => load())}
+              >
+                {c.status === "suspended" ? "Unsuspend" : "Suspend"}
+              </Button>
+            </Card>
+          ))}
+          {!crews.length && <p className="text-sm text-slate-500">No worker teams yet.</p>}
+        </div>
+      )}
+
       {view === "admin-reviews" && (
         <Card padding="none">
           <div className="divide-y divide-slate-100">
@@ -699,6 +755,11 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
               https://fixbuddy-ivory.vercel.app and http://localhost:5173. Do not use an Android/iOS client ID.
             </p>
             <Input label="Commission %" type="number" value={settings.commissionPercent} onChange={(e) => setSettings({ ...settings, commissionPercent: Number(e.target.value) })} />
+            <Input label="Travel compensation ₹" type="number" value={settings.travelCompensationInr ?? 75} onChange={(e) => setSettings({ ...settings, travelCompensationInr: Number(e.target.value) })} />
+            <p className="text-xs text-slate-400">Paid to the worker when a customer cancels after the worker has started travelling.</p>
+            <Input label="Festival name" value={settings.festivalName || ""} onChange={(e) => setSettings({ ...settings, festivalName: e.target.value })} />
+            <Input label="Festival city" placeholder="Leave blank for all cities" value={settings.festivalCity || ""} onChange={(e) => setSettings({ ...settings, festivalCity: e.target.value })} />
+            <Input label="Festival note" value={settings.festivalNote || ""} onChange={(e) => setSettings({ ...settings, festivalNote: e.target.value })} />
             <Button onClick={() => void AdminAPI.patchSettings({ ...settings, smtpPass: settings.smtpPass || undefined }).then((r) => { setSettings(r.settings); setPendingMail(r.pendingMail || 0); })}>Save settings</Button>
             <div className="border-t border-slate-200 pt-4 space-y-3">
               <h3 className="font-semibold text-slate-900">Worker cancellation compensation</h3>

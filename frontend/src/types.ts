@@ -39,7 +39,15 @@ export type View =
   | "ai-recommend"
   | "worker-license"
   | "worker-wallet"
+  | "worker-target"
+  | "worker-next-jobs"
+  | "worker-crews"
   | "worker-passport"
+  | "worker-safety"
+  | "public-passport"
+  | "find-crew"
+  | "active-job"
+  | "family-watch"
   | "admin"
   | "admin-login"
   | "admin-customers"
@@ -59,6 +67,8 @@ export type View =
   | "admin-users"
   | "admin-audit"
   | "admin-licenses"
+  | "admin-safety"
+  | "admin-crews"
   | "job-details";
 
 export type UserType = "customer" | "worker" | "business" | null;
