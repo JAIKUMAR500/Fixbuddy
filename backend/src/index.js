@@ -169,8 +169,6 @@ app.get("/api/public/stats", async (_req, res) => {
   res.json(payload);
 });
 
-app.use("/api/workers", publicWorkerRoutes);
-
 app.use("/api/auth", authRoutes);
 app.use("/api/providers", auth, providerRoutes);
 app.use("/api/requests", auth, requestRoutes);
