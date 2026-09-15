@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=20.19.0"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "fixbuddy": "file:..",
     "lucide-react": "^1.42.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
