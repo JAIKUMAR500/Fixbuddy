@@ -290,7 +290,7 @@ export default function Landing({ navigate }: { navigate: (v: View) => void }) {
       <footer className="bg-slate-900 text-slate-400 py-12">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row justify-between gap-8 mb-8">
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-7 h-7 bg-sky-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">F</span>
                 <span className="text-white font-bold text-lg" style={{ fontFamily: "Outfit, sans-serif" }}>Fixbuddy</span>
@@ -298,16 +298,16 @@ export default function Landing({ navigate }: { navigate: (v: View) => void }) {
               <p className="text-sm max-w-xs">Your smart everyday problem-solving platform. Get things done.</p>
               <SupportContact
                 variant="stack"
-                className="block text-sm text-sky-400 mt-3 hover:text-sky-300"
+                className="block text-sm text-sky-400 mt-3 hover:text-sky-300 break-words"
               />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-sm min-w-0">
               {[
                 { title: "Product", links: ["How it Works", "Services", "Pricing", "Blog"] },
                 { title: "Business", links: ["Join as Business", "For Teams", "Enterprise", "Resources"] },
                 { title: "Company", links: ["About Us", "Careers", "Press", "Contact support"] },
               ].map((col) => (
-                <div key={col.title}>
+                <div key={col.title} className="min-w-0">
                   <p className="text-white font-semibold mb-3">{col.title}</p>
                   {col.links.map((link) =>
                     link === "Contact support" ? (

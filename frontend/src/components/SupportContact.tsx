@@ -37,7 +37,7 @@ export default function SupportContact({
       <div className={className}>
         <a href={mailto} className="block">
           <span className="block font-semibold">Contact support</span>
-          <span className="block">{email}</span>
+          <span className="block break-words">{email}</span>
         </a>
         <a href={SUPPORT_WHATSAPP} target="_blank" rel="noreferrer" aria-label="Open FixBuddy WhatsApp support" title="WhatsApp support" className="inline-flex items-center gap-1 mt-2 text-emerald-600">
           <MessageCircle className="w-4 h-4" /> WhatsApp support
@@ -47,7 +47,7 @@ export default function SupportContact({
   }
 
   return (
-    <span className={className}>
+    <span className={`break-words ${className}`.trim()}>
       <a href={mailto}>Contact support · {email}</a>
       <a href={SUPPORT_WHATSAPP} target="_blank" rel="noreferrer" aria-label="Open FixBuddy WhatsApp support" title="WhatsApp support" className="inline-flex items-center gap-1 ml-3 text-emerald-600">
         <MessageCircle className="w-4 h-4" /> WhatsApp
