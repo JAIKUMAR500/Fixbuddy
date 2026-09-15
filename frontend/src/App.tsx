@@ -40,6 +40,11 @@ import AccountSettings from "./pages/shared/AccountSettings";
 import AiRecommend from "./pages/shared/AiRecommend";
 import TeamPage from "./pages/business/TeamPage";
 import ActiveJob from "./pages/shared/ActiveJob";
+import WorkerTarget from "./pages/worker/WorkerTarget";
+import WorkerNextJobs from "./pages/worker/WorkerNextJobs";
+import WorkerCrews from "./pages/worker/WorkerCrews";
+import WorkerPassport from "./pages/worker/WorkerPassport";
+import WorkerSafety from "./pages/worker/WorkerSafety";
 import PublicPassport from "./pages/worker/PublicPassport";
 import FamilyWatch from "./pages/shared/FamilyWatch";
 import FindCrew from "./pages/customer/FindCrew";
@@ -165,6 +170,11 @@ function Shell() {
         {view === "worker-license" && <LicensePage />}
         {view === "worker-wallet" && <LiveWallet />}
         {view === "ai-recommend" && <AiRecommend />}
+        {view === "worker-target" && <WorkerTarget navigate={navigate} />}
+        {view === "worker-next-jobs" && <WorkerNextJobs navigate={navigate} />}
+        {view === "worker-crews" && <WorkerCrews navigate={navigate} />}
+        {view === "worker-passport" && <WorkerPassport navigate={navigate} />}
+        {view === "worker-safety" && <WorkerSafety navigate={navigate} />}
       </>
     );
   }
@@ -192,6 +202,7 @@ function Shell() {
         {view === "business-wallet" && <LiveWallet />}
         {view === "ai-recommend" && <AiRecommend />}
         {view === "find-crew" && <FindCrew navigate={navigate} />}
+        {view === "business-team" && <TeamPage />}
       </>
     );
   }
@@ -214,7 +225,8 @@ function PublicProfileEntry() {
 }
 
 function Root() {
-  if (window.location.pathname.startsWith("/workers/")) return <PublicProfileEntry />;
+  const path = window.location.pathname;
+  if (path.startsWith("/workers/") || path.startsWith("/pro/")) return <PublicProfileEntry />;
   return <Shell />;
 }
 

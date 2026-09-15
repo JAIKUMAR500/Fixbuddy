@@ -78,8 +78,6 @@ function itemsFor(variant: Variant, t: (k: string) => string): { icon: typeof Ho
       { icon: Star, label: t("nav.reviews"), view: "reviews" },
       { icon: User, label: t("nav.profile"), view: "business-profile" },
       { icon: Wallet, label: t("nav.wallet"), view: "worker-wallet" },
-      { icon: User, label: "Professional Passport", view: "worker-passport" },
-      { icon: Users, label: "My Team", view: "business-team" },
       { icon: KeyRound, label: t("nav.license"), view: "worker-license" },
       { icon: Settings, label: t("nav.settings"), view: "provider-settings" },
     ];
