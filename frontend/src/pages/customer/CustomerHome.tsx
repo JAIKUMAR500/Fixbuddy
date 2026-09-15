@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Search, ArrowRight, MapPin, SlidersHorizontal } from "lucide-react";
 import { View } from "../../types";
-import { Card, Badge, RatingStars, VerifiedBadge, Button, Avatar, EmptyState, FetchBanner } from "../../components/ui";
+import { Card, Badge, RatingStars, StatusBadge, VerifiedBadge, Button, Avatar, EmptyState, FetchBanner } from "../../components/ui";
 import CategoryIcon from "../../components/CategoryIcon";
 import { useApp, useFetch } from "../../api/AppContext";
 import { mediaUrl, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
@@ -155,13 +155,31 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
         </div>
       )}
       {completed.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="font-bold text-slate-900">Completed jobs</h2>
-          {completed.map((r) => (
-            <button key={r.id} type="button" className="w-full text-left text-sm text-slate-600" onClick={() => openRequest(r.id, "request-status")}>
-              {r.category} · {r.provider?.name || "Worker"} · ₹{r.workerQuote || r.estimatedAmount || 0}
+        <div className="relative z-10 w-full space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold text-slate-900">Completed jobs</h2>
+            <button type="button" onClick={() => navigate("my-requests")} className="text-sm font-medium text-brand">
+              See all
             </button>
-          ))}
+          </div>
+          {completed.map((r) => {
+            const amount = Number(r.workerQuote || r.estimatedAmount || 0);
+            return (
+              <Card key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">{r.category}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {r.provider?.name || "Worker"} · {r.code}
+                    {amount > 0 ? ` · ₹${amount}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <StatusBadge status={r.status} />
+                  <Button variant="outline" onClick={() => openRequest(r.id, "request-status")}>View</Button>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
