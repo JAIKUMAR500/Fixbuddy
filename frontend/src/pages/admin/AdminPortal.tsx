@@ -36,6 +36,7 @@ import AnalyticsDashboard from "../shared/AnalyticsDashboard";
 import { ComboChart, dayLabel } from "../../components/Charts";
 import CategoryIcon, { CATEGORY_ICONS } from "../../components/CategoryIcon";
 import { SUPPORT_EMAIL } from "../../api/brand";
+import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 
 type Overview = {
   users: number;
@@ -118,6 +119,8 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
   const [skillRows, setSkillRows] = useState<
     { id: string; workerId: string; worker: string; email: string; name: string; level: string; requestedAt: string }[]
   >([]);
+  const [confirm, setConfirm] = useState<{ id: string; name: string; email: string; next: "suspended" | "active" | "verified" } | null>(null);
+  const [confirmReason, setConfirmReason] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -179,7 +182,42 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
   }, [view]);
 
   const patch = async (id: string, body: object) => {
+    const payload = body as { status?: string; verified?: boolean; reason?: string };
+    const account = users.find((u) => u.id === id) || selected;
+    if (payload.status === "suspended" || payload.status === "active") {
+      setConfirm({
+        id,
+        name: account?.name || id,
+        email: account?.email || "",
+        next: payload.status,
+      });
+      setConfirmReason("");
+      return;
+    }
+    if (payload.verified === true) {
+      setConfirm({
+        id,
+        name: account?.name || id,
+        email: account?.email || "",
+        next: "verified",
+      });
+      setConfirmReason("");
+      return;
+    }
     await AdminAPI.patchUser(id, body);
+    await load();
+  };
+
+  const applyConfirm = async () => {
+    if (!confirm) return;
+    if (confirm.next === "suspended" && !confirmReason.trim()) return;
+    const body =
+      confirm.next === "verified"
+        ? { verified: true }
+        : { status: confirm.next, reason: confirmReason.trim() || "Activated by admin" };
+    await AdminAPI.patchUser(confirm.id, body);
+    setConfirm(null);
+    setConfirmReason("");
     await load();
   };
 
@@ -211,6 +249,21 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
         </Button>
       </div>
       {error && <Card className="border-red-200 bg-red-50 text-sm text-red-700">{error}</Card>}
+      {confirm && (
+        <Card className="border-amber-200 bg-amber-50 space-y-3">
+          <p className="font-semibold text-slate-900">
+            {confirm.next === "verified" ? "Verify this account?" : confirm.next === "suspended" ? "Suspend this account?" : "Activate this account?"}
+          </p>
+          <p className="text-sm text-slate-700">{confirm.name} · {confirm.email}</p>
+          {confirm.next === "suspended" && (
+            <Input label="Reason (required)" value={confirmReason} onChange={(e) => setConfirmReason(e.target.value)} />
+          )}
+          <div className="flex gap-2">
+            <Button onClick={() => void applyConfirm()} disabled={confirm.next === "suspended" && !confirmReason.trim()}>Confirm</Button>
+            <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
+          </div>
+        </Card>
+      )}
 
       {view === "admin" && (
         <>
@@ -222,8 +275,9 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
             <Kpi label="Total Requests" value={overview?.requests} loading={loading} />
             <Kpi label="Active Jobs" value={overview?.activeJobs} loading={loading} />
             <Kpi label="Completed Jobs" value={overview?.completedJobs} loading={loading} />
-            <Kpi label="Platform Revenue" value={money(overview?.revenue || 0)} hint="Commissions + payments" loading={loading} />
+            <Kpi label="Platform Revenue" value={money(overview?.revenue || 0)} hint="Simulated commission only" loading={loading} />
           </div>
+          <SimulatedMoneyBanner />
           <div className="grid lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <h2 className="font-semibold mb-1">Jobs trend</h2>
@@ -595,10 +649,10 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
                   <span className="text-slate-400 text-xs">{when(r.createdAt)}</span>
                 </div>
                 <p className="text-sm text-slate-800">{r.comment || "No comment"}</p>
-                <p className="text-xs text-slate-500 mt-1">{r.customer} → {r.provider}</p>
+                <p className="text-xs text-slate-500 mt-1">{r.customer} → {r.provider}{r.requestCode ? ` · ${r.requestCode}` : ""}</p>
               </div>
             ))}
-            {!reviews.length && <p className="p-5 text-sm text-slate-500">No reviews yet.</p>}
+            {!loading && !reviews.length && <p className="p-5 text-sm text-slate-500">No reviews yet.</p>}
           </div>
         </Card>
       )}
@@ -624,10 +678,12 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
 
       {view === "admin-transactions" && (
         <>
-          <div className="grid sm:grid-cols-3 gap-4">
-            <Kpi label="Payments" value={money(totals.payment || 0)} />
-            <Kpi label="Provider earnings" value={money(totals.payout || 0)} />
-            <Kpi label="Refunds" value={money(totals.refund || 0)} />
+          <SimulatedMoneyBanner />
+          <div className="grid sm:grid-cols-4 gap-4">
+            <Kpi label="Simulated job value" value={money(totals.payment || totals.JOB_PAYMENT_SIMULATION || 0)} />
+            <Kpi label="Simulated commission" value={money(totals.commission || totals.COMMISSION_SIMULATION || 0)} />
+            <Kpi label="Simulated worker earnings" value={money(totals.payout || totals.WORKER_EARNING_SIMULATION || 0)} />
+            <Kpi label="Simulated compensation" value={money(totals.compensation || totals.CANCELLATION_COMPENSATION_SIMULATION || 0)} />
           </div>
           <Card padding="none">
             <table className="w-full text-sm">
@@ -638,8 +694,8 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
                 {txns.map((t) => (
                   <tr key={t._id}>
                     <td className="px-4 py-3 font-medium">{t.code}</td>
-                    <td className="px-4 py-3 capitalize">{t.kind}</td>
-                    <td className="px-4 py-3">{money(t.amount)}</td>
+                    <td className="px-4 py-3">{t.type || t.kind}</td>
+                    <td className="px-4 py-3">{money(t.amount)}{t.amountPaise != null ? ` (${t.amountPaise} paise)` : ""}</td>
                     <td className="px-4 py-3"><StatusBadge status={t.status} /></td>
                     <td className="px-4 py-3">{when(t.createdAt)}</td>
                   </tr>
@@ -757,7 +813,8 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
               Web client ID from Google Cloud → APIs &amp; Services → Credentials. Authorized JavaScript origins must include
               https://fixbuddy-ivory.vercel.app and http://localhost:5173. Do not use an Android/iOS client ID.
             </p>
-            <Input label="Commission %" type="number" value={settings.commissionPercent} onChange={(e) => setSettings({ ...settings, commissionPercent: Number(e.target.value) })} />
+            <Input label="Commission % (simulated)" type="number" value={settings.commissionPercent} onChange={(e) => setSettings({ ...settings, commissionPercent: Number(e.target.value) })} />
+            <p className="text-xs text-amber-800">DEVELOPMENT / SIMULATED — NO REAL MONEY. Changing this percent only affects future simulated settlements.</p>
             <Input label="Travel compensation ₹" type="number" value={settings.travelCompensationInr ?? 75} onChange={(e) => setSettings({ ...settings, travelCompensationInr: Number(e.target.value) })} />
             <p className="text-xs text-slate-400">Paid to the worker when a customer cancels after the worker has started travelling.</p>
             <Input label="Festival name" value={settings.festivalName || ""} onChange={(e) => setSettings({ ...settings, festivalName: e.target.value })} />

@@ -6,7 +6,7 @@ import { WorkerAPI, type WorkerJobSuggestion, type WorkerPassport, type WorkerTa
 import type { View } from "../types";
 
 export default function WorkerPowerPanel({ navigate }: { navigate: (view: View) => void }) {
-  const { setActiveRequestId } = useApp();
+  const { setActiveRequestId, jobFocusLocked } = useApp();
   const { data: targetData, reload: reloadTarget } = useFetch<{ target: WorkerTarget }>("/worker/daily-target");
   const { data: jobsData } = useFetch<{ jobs: WorkerJobSuggestion[] }>("/worker/recommended-jobs");
   const { data: passportData } = useFetch<{ passport: WorkerPassport }>("/worker/passport");
@@ -53,7 +53,10 @@ export default function WorkerPowerPanel({ navigate }: { navigate: (view: View) 
         {target?.achieved && <p className="mt-3 text-sm font-semibold text-emerald-700">Daily target achieved.</p>}
       </Card>
 
-      {bestJob && <Card padding="md" className="border-emerald-200 bg-emerald-50"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Best next job</p><div className="mt-2 flex items-start justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">{bestJob.category}</h2><p className="text-sm text-slate-600 line-clamp-1">{bestJob.description}</p><p className="mt-2 text-sm font-semibold text-emerald-800">₹{bestJob.amount} · {bestJob.distanceKm ?? "—"} km · {bestJob.etaMinutes ?? "—"} min</p></div><Button size="sm" onClick={() => { setActiveRequestId(bestJob.id); navigate("job-details"); }}>View job</Button></div></Card>}
+      {bestJob && !jobFocusLocked && <Card padding="md" className="border-emerald-200 bg-emerald-50"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Best next job</p><div className="mt-2 flex items-start justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">{bestJob.category}</h2><p className="text-sm text-slate-600 line-clamp-1">{bestJob.description}</p><p className="mt-2 text-sm font-semibold text-emerald-800">₹{bestJob.amount} · {bestJob.distanceKm ?? "—"} km · {bestJob.etaMinutes ?? "—"} min</p></div><Button size="sm" onClick={() => { setActiveRequestId(bestJob.id); navigate("job-details"); }}>View job</Button></div></Card>}
+      {jobFocusLocked && (
+        <Button onClick={() => navigate("active-job")}>Track Active Job</Button>
+      )}
 
       {passport && <Card padding="md"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2"><UserRound className="w-4 h-4" /> Professional passport</p><h2 className="mt-1 text-lg font-bold text-slate-900">{passport.name}</h2><p className="text-sm text-slate-600">{passport.skills.slice(0, 3).map((skill) => skill.name).join(" · ") || "Add skills to your passport"}</p></div><div className="text-right"><p className="text-xl font-black text-slate-900">{passport.ratingAvg.toFixed(1)}</p><p className="text-xs text-slate-500">{passport.completedJobs} completed</p></div></div></Card>}
 

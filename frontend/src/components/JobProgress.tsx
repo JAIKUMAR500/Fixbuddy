@@ -1,26 +1,18 @@
 import React from "react";
 import { Check } from "lucide-react";
+import { jobStepIndex } from "../api/jobLock";
+
+export { jobStepIndex };
 
 export const JOB_STEPS = [
-  { key: "request", label: "Request" },
+  { key: "request", label: "Searching" },
   { key: "accepted", label: "Accepted" },
-  { key: "travel", label: "Travel" },
+  { key: "travel", label: "On the way" },
   { key: "arrived", label: "Arrived" },
-  { key: "verified", label: "Verified" },
-  { key: "working", label: "Working" },
-  { key: "completed", label: "Completed" },
+  { key: "verified", label: "OTP verified" },
+  { key: "working", label: "Work started" },
+  { key: "completed", label: "Work completed" },
 ] as const;
-
-export function jobStepIndex(status?: string | null) {
-  const s = String(status || "");
-  if (["reviewed", "customer_completed", "payment_collected", "completed"].includes(s)) return 7;
-  if (s === "in_progress") return 5;
-  if (s === "otp_verified") return 4;
-  if (s === "arrived") return 3;
-  if (s === "on_the_way") return 2;
-  if (["accepted", "scheduled"].includes(s)) return 1;
-  return 0;
-}
 
 export function jobPrimaryAction(
   status?: string | null

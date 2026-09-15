@@ -1,28 +1,28 @@
 import React, { useState } from "react";
 import { ChevronRight, MapPin, Calendar, Plus, ClipboardList } from "lucide-react";
 import { View } from "../../types";
-import { Tabs, StatusBadge, EmptyState, Card } from "../../components/ui";
+import { Tabs, StatusBadge, EmptyState, Card, FetchBanner } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import type { JobRequest } from "../../api/client";
 import { isEngagedStatus } from "../../api/jobLock";
 
 export default function MyRequests({ navigate }: { navigate: (v: View) => void }) {
   const [tab, setTab] = useState("Active");
-  const { setActiveRequestId } = useApp();
-  const { data, loading, error } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const { openRequest, jobFocusLocked } = useApp();
+  const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const rows = data?.requests || [];
 
   const filtered = rows.filter((request) => {
-    if (tab === "Active") return ["matching", "open", "requested", "accepted", "on_the_way", "arrived", "otp_verified", "in_progress", "payment_collected"].includes(request.status);
+    if (tab === "Active") return ["matching", "open", "requested", "accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"].includes(request.status);
     if (tab === "Upcoming") return request.status === "scheduled";
-    if (tab === "Completed") return ["completed", "reviewed", "customer_completed"].includes(request.status);
+    if (tab === "Completed") return ["payment_collected", "customer_completed", "reviewed"].includes(request.status);
     if (tab === "Cancelled") return ["cancelled", "declined"].includes(request.status);
     return true;
   });
   const counts = {
-    active: rows.filter((r) => ["matching", "open", "requested", "accepted", "on_the_way", "arrived", "otp_verified", "in_progress", "payment_collected"].includes(r.status)).length,
+    active: rows.filter((r) => ["matching", "open", "requested", "accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"].includes(r.status)).length,
     upcoming: rows.filter((r) => r.status === "scheduled").length,
-    completed: rows.filter((r) => ["completed", "reviewed"].includes(r.status)).length,
+    completed: rows.filter((r) => ["payment_collected", "customer_completed", "reviewed"].includes(r.status)).length,
     cancelled: rows.filter((r) => ["cancelled", "declined"].includes(r.status)).length,
   };
 
@@ -34,9 +34,11 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 mb-1">My Requests</h1>
           <p className="text-slate-500 text-sm">Keep every service request and booking in one place.</p>
         </div>
+        {!jobFocusLocked && (
         <button type="button" onClick={() => navigate("create-request")} className="inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-brand text-white text-sm font-semibold shadow-sm hover:bg-brand-dark">
           <Plus className="w-4 h-4" /> New request
         </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -60,10 +62,10 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
         className="mb-5"
       />
 
-      {error && <Card className="mb-4 border-red-200 bg-red-50 text-sm text-red-700">{error}</Card>}
-      {loading ? (
+      <FetchBanner error={error} onRetry={reload} loading={loading} />
+      {loading && !data ? (
         <Card className="text-sm text-slate-500">Loading your requests...</Card>
-      ) : filtered.length === 0 ? (
+      ) : error && !data ? null : filtered.length === 0 ? (
         <EmptyState
           icon={tab === "Cancelled" ? "🚫" : "📋"}
           title={`No ${tab} Requests`}
@@ -78,10 +80,7 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
               key={r.id}
               padding="md"
               className="hover:border-sky-300 hover:shadow-sm transition-all cursor-pointer"
-              onClick={() => {
-                setActiveRequestId(r.id);
-                navigate(isEngagedStatus(r.status) ? "active-job" : "request-status");
-              }}
+              onClick={() => openRequest(r.id, isEngagedStatus(r.status) ? "active-job" : "request-status")}
             >
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>

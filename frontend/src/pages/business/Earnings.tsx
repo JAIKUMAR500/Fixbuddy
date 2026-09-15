@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { TrendingUp, DollarSign } from "lucide-react";
 import { View } from "../../types";
-import { Card, StatCard, EmptyState } from "../../components/ui";
+import { Card, StatCard, EmptyState, FetchBanner } from "../../components/ui";
 import { useFetch } from "../../api/AppContext";
 import type { JobRequest } from "../../api/client";
+import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 
 export default function Earnings({ navigate }: { navigate: (v: View) => void }) {
-  const { data: statsData } = useFetch<{ stats: Record<string, number> }>("/stats");
-  const { data, loading } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const { data: statsData, error: statsError, reload: reloadStats } = useFetch<{ stats: Record<string, number> }>("/stats");
+  const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const stats = statsData?.stats || {};
   const jobs = (data?.requests || []).filter((r) => ["completed", "reviewed", "in_progress", "accepted", "scheduled"].includes(r.status));
   const paid = (data?.requests || []).filter((r) => r.paymentStatus === "collected" || ["payment_collected", "customer_completed", "reviewed"].includes(r.status));
@@ -31,8 +32,11 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
     <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-5">
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Earnings</h1>
-        <p className="text-slate-500 text-sm">From your live completed jobs</p>
+        <p className="text-slate-500 text-sm">Simulated totals from completed jobs</p>
+        <SimulatedMoneyBanner className="mt-2" />
       </div>
+
+      <FetchBanner error={error || statsError} onRetry={() => { reload(); reloadStats(); }} loading={loading} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Total Earned" value={`₹${(stats.earnings ?? total).toLocaleString("en-IN")}`} icon={<DollarSign className="w-5 h-5" />} color="sky" />
@@ -43,9 +47,9 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
 
       <Card padding="lg">
         <h3 className="font-semibold text-slate-900 mb-5 text-sm">Monthly Revenue</h3>
-        {months.length === 0 ? (
+        {months.length === 0 && !error ? (
           <p className="text-sm text-slate-500">No completed payouts yet.</p>
-        ) : (
+        ) : months.length === 0 ? null : (
           <div className="flex items-end gap-3 h-32">
             {months.map((m) => (
               <div key={m.month} className="flex-1 flex flex-col items-center gap-2">
@@ -61,8 +65,8 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
 
       <Card padding="md">
         <h3 className="font-semibold text-slate-900 mb-4 text-sm">Recent Jobs</h3>
-        {loading && <p className="text-sm text-slate-500">Loading...</p>}
-        {!loading && jobs.length === 0 && <EmptyState icon="₹" title="No earnings yet" description="Completed jobs will show amounts here." />}
+        {loading && !data && <p className="text-sm text-slate-500">Loading...</p>}
+        {!loading && !error && jobs.length === 0 && <EmptyState icon="₹" title="No earnings yet" description="Completed jobs will show amounts here." />}
         <div className="space-y-3">
           {jobs.slice(0, 12).map((t) => (
             <div key={t.id} className="flex items-center gap-3 py-2 border-b border-sky-50 last:border-0 cursor-pointer" onClick={() => navigate("job-details")}>

@@ -326,6 +326,20 @@ interface EmptyStateProps {
   onAction?: () => void;
 }
 
+export function FetchBanner({ error, onRetry, loading }: { error?: string; onRetry?: () => void; loading?: boolean }) {
+  if (!error) return null;
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <p>{error}</p>
+      {onRetry && (
+        <Button size="sm" variant="outline" onClick={onRetry} disabled={loading}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, description, actionLabel, onAction }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4 text-center">

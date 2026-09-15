@@ -6,8 +6,8 @@ import { Review } from "../models/Review.js";
 import { Notification } from "../models/Notification.js";
 import { Category } from "../models/Category.js";
 import { Complaint } from "../models/Complaint.js";
-import { Transaction } from "../models/Transaction.js";
 import { AuditLog } from "../models/AuditLog.js";
+import { LedgerEntry } from "../models/LedgerEntry.js";
 import { getSettings, clearSettingsCache } from "../models/PlatformSettings.js";
 import { MailJob } from "../models/MailJob.js";
 import { sendMail, sendPendingMail } from "../services/mail.js";
@@ -16,11 +16,30 @@ import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser, presentRequest } from "../utils/serialize.js";
 import { logAudit } from "../utils/audit.js";
 import { notifyMany } from "../services/notify.js";
+import { LEDGER_TYPES, SIMULATION_LABEL } from "../services/payments/config.js";
+import { paiseToRupees } from "../services/payments/money.js";
 import { buildLicense, licenseView, createUserWithCode } from "../utils/license.js";
 import { WorkerPassport } from "../models/WorkerPassport.js";
+import { BUSY_JOB_STATUSES, PAID_JOB_STATUSES } from "../utils/geo.js";
+import { paramObjectId } from "../middleware/validate.js";
+import { rateLimit, AUTH_LIMITS, clientKey } from "../middleware/rateLimit.js";
+
+const adminMutateLimit = rateLimit({
+  windowMs: AUTH_LIMITS.adminMutate.windowMs,
+  max: AUTH_LIMITS.adminMutate.max,
+  key: (req) => `admin-mutate:${req.userId || clientKey(req)}`,
+  message: "Too many admin changes. Try again in a few minutes.",
+});
 
 const router = Router();
 router.use(requireRole("admin"));
+router.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") return next();
+  return adminMutateLimit(req, res, next);
+});
+router.param("id", paramObjectId("id"));
+router.param("workerId", paramObjectId("workerId"));
+router.param("skillId", paramObjectId("skillId"));
 
 router.get(
   "/overview",
@@ -48,9 +67,12 @@ router.get(
       Request.countDocuments(),
       Review.countDocuments(),
       User.countDocuments({ role: { $in: ["worker", "business", "provider"] }, "provider.verified": false }),
-      Request.countDocuments({ status: { $in: ["accepted", "scheduled", "in_progress"] } }),
-      Request.countDocuments({ status: { $in: ["completed", "reviewed"] } }),
-      Transaction.aggregate([{ $match: { kind: { $in: ["commission", "payment"] }, status: "paid" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+      Request.countDocuments({ status: { $in: BUSY_JOB_STATUSES } }),
+      Request.countDocuments({ status: { $in: ["completed", ...PAID_JOB_STATUSES] } }),
+      LedgerEntry.aggregate([
+        { $match: { type: LEDGER_TYPES.COMMISSION, status: "simulated" } },
+        { $group: { _id: null, total: { $sum: "$amountPaise" } } },
+      ]),
       User.countDocuments({ role: "customer", createdAt: { $gte: weekAgo } }),
       User.countDocuments({ role: "customer", createdAt: { $gte: twoWeeks, $lt: weekAgo } }),
     ]);
@@ -69,7 +91,9 @@ router.get(
       pendingVerification,
       activeJobs,
       completedJobs,
-      revenue: revenueAgg[0]?.total || 0,
+      revenue: paiseToRupees(revenueAgg[0]?.total || 0),
+      financialMode: "development",
+      financialLabel: SIMULATION_LABEL,
       customerGrowth: growth,
       byStatus: Object.fromEntries(byStatus.map((s) => [s._id, s.n])),
       recentActivity: recent.map((a) => ({
@@ -102,7 +126,7 @@ router.get(
     const [posted, completed] = await Promise.all([
       Request.aggregate([{ $match: { customerId: { $in: ids } } }, { $group: { _id: "$customerId", n: { $sum: 1 } } }]),
       Request.aggregate([
-        { $match: { customerId: { $in: ids }, status: { $in: ["completed", "reviewed"] } } },
+        { $match: { customerId: { $in: ids }, status: { $in: ["completed", ...PAID_JOB_STATUSES] } } },
         { $group: { _id: "$customerId", n: { $sum: 1 } } },
       ]),
     ]);
@@ -170,7 +194,16 @@ router.patch(
   "/users/:id",
   asyncHandler(async (req, res) => {
     const set = {};
-    if (req.body.status) set.status = req.body.status;
+    if (req.body.status) {
+      if (!["active", "suspended"].includes(req.body.status)) throw httpError(400, "Invalid status");
+      if (req.body.status === "suspended") {
+        const reason = String(req.body.reason || "").trim();
+        if (!reason) throw httpError(400, "A reason is required to suspend an account");
+        set.status = "suspended";
+      } else {
+        set.status = "active";
+      }
+    }
     if (req.body.verified != null) set["provider.verified"] = !!req.body.verified;
     if (req.body.skillName && req.body.skillVerified != null) {
       const userDoc = await User.findById(req.params.id);
@@ -191,7 +224,13 @@ router.patch(
     if (req.body.city) set.city = req.body.city;
     const user = await User.findByIdAndUpdate(req.params.id, { $set: set }, { new: true }).lean();
     if (!user) throw httpError(404, "User not found");
-    await logAudit(req, req.body.verified ? "Verified account" : req.body.status ? `Set status ${req.body.status}` : "Updated user", user.email);
+    const reason = String(req.body.reason || "").trim();
+    await logAudit(
+      req,
+      req.body.verified ? "Verified account" : req.body.status ? `Set status ${req.body.status}` : "Updated user",
+      user.email,
+      { reason, userId: String(user._id) }
+    );
     res.json({ user: publicUser(user) });
   })
 );
@@ -272,7 +311,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const filter = {};
     if (req.query.status) filter.status = req.query.status;
-    if (req.query.jobs === "true") filter.status = { $in: ["accepted", "scheduled", "in_progress", "completed", "reviewed", "cancelled"] };
+    if (req.query.jobs === "true") {
+      filter.status = { $in: [...BUSY_JOB_STATUSES, "completed", ...PAID_JOB_STATUSES, "cancelled", "declined"] };
+    }
     const rows = await Request.find(filter).sort({ createdAt: -1 }).limit(200).lean();
     const people = await User.find({
       _id: { $in: rows.flatMap((r) => [r.customerId, r.providerId]).filter(Boolean) },
@@ -300,11 +341,19 @@ router.get(
   asyncHandler(async (_req, res) => {
     const rows = await Review.find().sort({ createdAt: -1 }).limit(100).lean();
     const ids = rows.flatMap((r) => [r.customerId, r.providerId]);
-    const users = await User.find({ _id: { $in: ids } }).select("name avatar provider").lean();
+    const jobIds = rows.map((r) => r.requestId).filter(Boolean);
+    const [users, jobs] = await Promise.all([
+      User.find({ _id: { $in: ids } }).select("name avatar provider").lean(),
+      Request.find({ _id: { $in: jobIds } }).select("code category").lean(),
+    ]);
     const map = Object.fromEntries(users.map((u) => [String(u._id), u]));
+    const jobsMap = Object.fromEntries(jobs.map((j) => [String(j._id), j]));
     res.json({
       reviews: rows.map((r) => ({
         id: String(r._id),
+        requestId: r.requestId ? String(r.requestId) : "",
+        requestCode: jobsMap[String(r.requestId)]?.code || "",
+        category: jobsMap[String(r.requestId)]?.category || "",
         rating: r.rating,
         comment: r.comment,
         createdAt: r.createdAt,
@@ -336,11 +385,35 @@ router.patch(
 router.get(
   "/transactions",
   asyncHandler(async (_req, res) => {
-    const rows = await Transaction.find().sort({ createdAt: -1 }).limit(200).lean();
-    const totals = await Transaction.aggregate([{ $group: { _id: "$kind", total: { $sum: "$amount" } } }]);
+    const rows = await LedgerEntry.find().sort({ createdAt: -1 }).limit(200).lean();
+    const totalsPaise = await LedgerEntry.aggregate([{ $group: { _id: "$type", total: { $sum: "$amountPaise" } } }]);
+    const totals = Object.fromEntries(
+      totalsPaise.map((t) => [t._id, paiseToRupees(t.total)])
+    );
     res.json({
-      transactions: rows,
-      totals: Object.fromEntries(totals.map((t) => [t._id, t.total])),
+      financialMode: "development",
+      label: SIMULATION_LABEL,
+      transactions: rows.map((t) => ({
+        _id: String(t._id),
+        code: t.code,
+        requestId: t.requestId ? String(t.requestId) : null,
+        amount: paiseToRupees(t.amountPaise),
+        amountPaise: t.amountPaise,
+        kind: t.type,
+        type: t.type,
+        status: t.status,
+        note: t.note,
+        financialMode: t.financialMode || "development",
+        simulated: true,
+        createdAt: t.createdAt,
+      })),
+      totals: {
+        ...totals,
+        payment: totals[LEDGER_TYPES.JOB_PAYMENT] || 0,
+        commission: totals[LEDGER_TYPES.COMMISSION] || 0,
+        payout: totals[LEDGER_TYPES.WORKER_EARNING] || 0,
+        compensation: totals[LEDGER_TYPES.COMPENSATION] || 0,
+      },
     });
   })
 );
@@ -373,7 +446,19 @@ router.get(
   "/audit",
   asyncHandler(async (_req, res) => {
     const rows = await AuditLog.find().sort({ createdAt: -1 }).limit(200).lean();
-    res.json({ logs: rows });
+    res.json({
+      logs: rows.map((a) => ({
+        _id: String(a._id),
+        id: String(a._id),
+        adminId: a.adminId ? String(a.adminId) : null,
+        adminName: a.adminName,
+        action: a.action,
+        target: a.target || "",
+        ip: a.ip || "",
+        meta: a.meta || {},
+        createdAt: a.createdAt,
+      })),
+    });
   })
 );
 
@@ -445,6 +530,8 @@ function presentSettings(doc) {
     smtpPassSet: Boolean(o.smtpPass),
     commissionPercent: o.commissionPercent,
     travelCompensationInr: o.travelCompensationInr ?? 75,
+    financialMode: "development",
+    financialLabel: SIMULATION_LABEL,
     festivalName: o.festivalName || "",
     festivalCity: o.festivalCity || "",
     festivalNote: o.festivalNote || "",

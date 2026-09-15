@@ -12,6 +12,8 @@ import { Complaint } from "./models/Complaint.js";
 import { Transaction } from "./models/Transaction.js";
 import { AuditLog } from "./models/AuditLog.js";
 import { PlatformSettings } from "./models/PlatformSettings.js";
+import { WorkerLock } from "./models/WorkerLock.js";
+import { LedgerEntry } from "./models/LedgerEntry.js";
 import { buildLicense } from "./utils/license.js";
 
 const AV = {
@@ -46,18 +48,25 @@ async function run() {
     Transaction.deleteMany({}),
     AuditLog.deleteMany({}),
     PlatformSettings.deleteMany({}),
+    WorkerLock.deleteMany({}),
+    LedgerEntry.deleteMany({}),
   ]);
 
   const passwordHash = await bcrypt.hash(seedPassword, 10);
 
   await Category.insertMany([
-    { name: "AC Repair & Service", icon: "❄️", description: "Split, window and cassette AC service", services: [{ name: "AC Service", priceFrom: 399 }, { name: "Gas Refill", priceFrom: 1499 }] },
-    { name: "Electrical Work", icon: "⚡", description: "Wiring, switches and inverter work", services: [{ name: "Switch repair", priceFrom: 199 }] },
-    { name: "Plumbing", icon: "🚿", description: "Leaks, taps and bathroom fittings", services: [{ name: "Leak fix", priceFrom: 249 }] },
-    { name: "Home Appliance Repair", icon: "🔧", description: "Fridge, washing machine, microwave", services: [{ name: "Washing machine", priceFrom: 349 }] },
-    { name: "Laptop/Mobile Repair", icon: "💻", description: "Screens, batteries and data recovery", services: [{ name: "Screen replace", priceFrom: 999 }] },
-    { name: "Cleaning", icon: "✨", description: "Home and office deep cleaning", services: [{ name: "Home cleaning", priceFrom: 799 }] },
-    { name: "PC Repair", icon: "🖥️", description: "Desktop and workstation repair", services: [{ name: "PC diagnosis", priceFrom: 299 }] },
+    { name: "Plumbing", icon: "droplets", description: "Leaks, taps, bathrooms and water lines", services: [{ name: "Leak fix", priceFrom: 249 }] },
+    { name: "Electrical", icon: "zap", description: "Wiring, switches, fans and inverters", services: [{ name: "Switch repair", priceFrom: 199 }] },
+    { name: "AC Repair", icon: "wind", description: "Split, window and cassette AC service", services: [{ name: "AC Service", priceFrom: 399 }, { name: "Gas Refill", priceFrom: 1499 }] },
+    { name: "Appliance Repair", icon: "plug", description: "Fridge, washing machine and kitchen appliances", services: [{ name: "Washing machine", priceFrom: 349 }] },
+    { name: "Carpentry", icon: "hammer", description: "Doors, furniture and woodwork", services: [{ name: "Door repair", priceFrom: 399 }] },
+    { name: "Painting", icon: "paintbrush", description: "Interior and exterior painting", services: [{ name: "Room painting", priceFrom: 999 }] },
+    { name: "Cleaning", icon: "sparkles", description: "Home and office cleaning", services: [{ name: "Home cleaning", priceFrom: 799 }] },
+    { name: "Welding", icon: "wrench", description: "Gates, grills and metal work", services: [{ name: "Grill repair", priceFrom: 499 }] },
+    { name: "Masonry", icon: "home", description: "Walls, plaster and tile work", services: [{ name: "Tile repair", priceFrom: 399 }] },
+    { name: "Driver", icon: "car", description: "Local driving and pickup help", services: [{ name: "Local trip", priceFrom: 499 }] },
+    { name: "Moving / Loading", icon: "truck", description: "Shifting, loading and unloading", services: [{ name: "Loading help", priceFrom: 599 }] },
+    { name: "Maintenance", icon: "wrench", description: "General one-day repair and upkeep", services: [{ name: "General repair", priceFrom: 299 }] },
   ]);
 
   const admin = await User.create({
@@ -252,7 +261,7 @@ async function run() {
     },
   });
 
-  await User.create({
+  const techfix = await User.create({
     name: "TechFix Pro",
     email: "techfix@fixbuddy.com",
     phone: "+91 99887 76655",
@@ -323,6 +332,7 @@ async function run() {
       { status: "accepted", note: "Worker accepted", at: new Date(Date.now() - 3000000) },
     ],
   });
+  await WorkerLock.create({ userId: worker._id, jobId: accepted._id });
 
   const openReq = await Request.create({
     code: "REQ-0002",
@@ -379,7 +389,8 @@ async function run() {
     timing: "custom",
     scheduledLabel: "Yesterday, 11:00 AM",
     estimatedAmount: 850,
-    status: "completed",
+    status: "reviewed",
+    paymentStatus: "collected",
     timeline: [
       { status: "requested", note: "Requested", at: new Date(Date.now() - 86400000 * 2) },
       { status: "completed", note: "Done", at: new Date(Date.now() - 86400000) },
@@ -389,7 +400,7 @@ async function run() {
   const scheduled = await Request.create({
     code: "JOB-0002",
     customerId: karthik._id,
-    providerId: worker._id,
+    providerId: techfix._id,
     postedByRole: "customer",
     description: "PC Repair at home — boot loop after power cut.",
     category: "PC Repair",
@@ -402,6 +413,7 @@ async function run() {
     status: "scheduled",
     timeline: [{ status: "scheduled", note: "Scheduled", at: new Date() }],
   });
+  await WorkerLock.create({ userId: techfix._id, jobId: scheduled._id });
 
   const conv = await Conversation.create({
     requestId: accepted._id,

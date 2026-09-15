@@ -26,14 +26,19 @@ router.get(
         ...mine,
         paymentStatus: "collected",
       })
-        .select("estimatedAmount workerQuote paymentCollectedAt")
+        .select("estimatedAmount workerQuote paymentCollectedAt finance")
         .lean();
-      const earnings = paid.reduce((s, r) => s + (r.workerQuote || r.estimatedAmount || 0), 0);
+      const netOf = (r) => {
+        const net = Number(r.finance?.workerNetPaise);
+        if (Number.isFinite(net) && net > 0) return Math.trunc(net / 100);
+        return r.workerQuote || r.estimatedAmount || 0;
+      };
+      const earnings = paid.reduce((s, r) => s + netOf(r), 0);
       const start = new Date();
       start.setHours(0, 0, 0, 0);
       const todayEarnings = paid
         .filter((r) => r.paymentCollectedAt && new Date(r.paymentCollectedAt) >= start)
-        .reduce((s, r) => s + (r.workerQuote || r.estimatedAmount || 0), 0);
+        .reduce((s, r) => s + netOf(r), 0);
       return res.json({
         stats: {
           newRequests: open,

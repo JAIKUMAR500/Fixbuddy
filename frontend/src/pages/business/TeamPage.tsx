@@ -48,7 +48,7 @@ export default function TeamPage() {
     <div className="p-4 lg:p-8 max-w-5xl mx-auto space-y-6 pb-24">
       <div>
         <h1 className="text-2xl font-bold font-display">{t("team.title")}</h1>
-        <p className="text-sm text-slate-500">Create groups and add staff. Invite by email — if they already have a worker login, they join as active.</p>
+        <p className="text-sm text-slate-500">Create groups and invite staff by email. This is your team roster — it does not automatically dispatch a crew onto a live FixBuddy job.</p>
       </div>
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{error}</p>}
       {loading && <Card className="text-sm text-slate-500">Loading team...</Card>}

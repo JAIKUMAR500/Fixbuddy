@@ -4,6 +4,7 @@ import { View } from "../../types";
 import { Button, Card, EmptyState, Input, Textarea } from "../../components/ui";
 import { CrewAPI, RequestAPI, type WorkerCrew } from "../../api/client";
 import { useApp } from "../../api/AppContext";
+import { isWorkerBusyConflict, jobError } from "../../api/jobLock";
 
 export default function WorkerCrews({ navigate }: { navigate: (v: View) => void }) {
   const { user, setActiveRequestId } = useApp();
@@ -154,7 +155,15 @@ export default function WorkerCrews({ navigate }: { navigate: (v: View) => void 
                   <p className="text-[11px] text-slate-500">{w.userCode} · {w.category} · {w.ratingAvg}★</p>
                 </button>
               ))}
-              <LeaderJobs crewId={mine.id} memberIds={mine.members.filter((m) => m.status === "active").map((m) => m.userId)} onOpen={(id) => { setActiveRequestId(id); navigate("work-requests"); }} />
+              <LeaderJobs
+                crewId={mine.id}
+                memberIds={mine.members.filter((m) => m.status === "active").map((m) => m.userId)}
+                onOpen={(id) => {
+                  setActiveRequestId(id);
+                  navigate("active-job");
+                }}
+                onBusy={() => navigate("active-job")}
+              />
             </div>
           )}
         </Card>
@@ -180,22 +189,53 @@ export default function WorkerCrews({ navigate }: { navigate: (v: View) => void 
   );
 }
 
-function LeaderJobs({ crewId, memberIds, onOpen }: { crewId: string; memberIds: string[]; onOpen: (id: string) => void }) {
+function LeaderJobs({
+  crewId,
+  memberIds,
+  onOpen,
+  onBusy,
+}: {
+  crewId: string;
+  memberIds: string[];
+  onOpen: (id: string) => void;
+  onBusy: () => void;
+}) {
+  const { refreshCurrentJob } = useApp();
   const [rows, setRows] = useState<{ id: string; category: string; status: string; estimatedAmount: number }[]>([]);
+  const [msg, setMsg] = useState("");
   useEffect(() => {
     void RequestAPI.list("?inbox=true")
       .then((d) => setRows(d.requests.filter((r) => r.crewId === crewId && ["matching", "open", "requested"].includes(r.status))))
       .catch(() => setRows([]));
   }, [crewId]);
-  if (!rows.length) return null;
+
+  const accept = async (id: string) => {
+    setMsg("");
+    try {
+      await CrewAPI.acceptJob(crewId, id, memberIds);
+      await refreshCurrentJob();
+      onOpen(id);
+    } catch (e) {
+      setMsg(jobError(e));
+      if (isWorkerBusyConflict(e)) {
+        await refreshCurrentJob();
+        onBusy();
+      } else {
+        setRows((x) => x.filter((i) => i.id !== id));
+      }
+    }
+  };
+
+  if (!rows.length && !msg) return null;
   return (
     <div className="space-y-2">
       <p className="text-sm font-semibold">Team job requests</p>
+      {msg && <p className="text-sm text-red-600">{msg}</p>}
       {rows.map((r) => (
         <div key={r.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
           <p className="text-sm font-semibold">{r.category} · ₹{r.estimatedAmount}</p>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => void CrewAPI.acceptJob(crewId, r.id, memberIds).then(() => onOpen(r.id))}>
+            <Button size="sm" onClick={() => void accept(r.id)}>
               Accept & assign
             </Button>
             <Button size="sm" variant="outline" onClick={() => void CrewAPI.acceptJob(crewId, r.id, [], true).then(() => setRows((x) => x.filter((i) => i.id !== r.id)))}>

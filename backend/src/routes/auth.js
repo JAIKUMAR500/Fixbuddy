@@ -12,20 +12,34 @@ import { buildLicense, hasValidLicense, ensureLoginLicense, createUserWithCode, 
 import { env } from "../config/env.js";
 import { sendMail, enqueueMail, otpEmailHtml, getMailConfig } from "../services/mail.js";
 import { verifyGoogleIdToken } from "../utils/googleAuth.js";
+import { rateLimit, AUTH_LIMITS, clientKey, identKey } from "../middleware/rateLimit.js";
 
 const router = Router();
 
+const AUTH_FAIL = "Email or password is incorrect. Check the Customer, Worker, or Business tab.";
+
 router.post(
   "/signup",
+  rateLimit({
+    windowMs: AUTH_LIMITS.signup.windowMs,
+    max: AUTH_LIMITS.signup.max,
+    key: (req) => `signup:${clientKey(req)}`,
+    message: "Too many signup attempts. Try again later.",
+  }),
   asyncHandler(async (req, res) => {
     const { name, email, phone, password, role, city, area, address, lat, lng } = req.body || {};
     if (!name || !email || !password) throw httpError(400, "Name, email and password are required");
+    if (String(password).length < 6) throw httpError(400, "Password must be at least 6 characters");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) throw httpError(400, "Enter a valid email address");
+    if (String(name).trim().length > 80 || String(email).trim().length > 120) {
+      throw httpError(400, "Name or email is too long");
+    }
     const nextRole = normalizeSignupRole(role);
     if (!nextRole) throw httpError(403, "Admin accounts cannot be created from signup");
     const normalizedEmail = String(email).trim().toLowerCase();
     const exists = await User.findOne({ email: normalizedEmail, role: nextRole }).lean();
-    if (exists) throw httpError(409, `An account with this email already exists for the ${nextRole} role`);
-    const passwordHash = await bcrypt.hash(password, 8);
+    if (exists) throw httpError(409, "Could not create this account. Try signing in instead.");
+    const passwordHash = await bcrypt.hash(password, 10);
     const user = await createUserWithCode({
       name,
       email: normalizedEmail,
@@ -89,13 +103,12 @@ async function usersMatchingIdent(ident) {
 async function pickUserWithPassword(ident, password, role) {
   const candidates = await usersMatchingIdent(ident);
   if (!candidates.length) {
-    throw httpError(401, "No account found. Check your email and the Customer, Worker, or Business tab.");
+    throw httpError(401, AUTH_FAIL);
   }
   const requested = ["customer", "worker", "business", "provider", "admin"].includes(role) ? role : "";
   const roleCandidates = requested ? candidates.filter((u) => roleMatches(u.role, requested)) : candidates;
   if (requested && !roleCandidates.length) {
-    const roles = [...new Set(candidates.map((u) => roleLabel(u.role)))].join(" or ");
-    throw httpError(401, `This email is a ${roles} account. Select ${roles}, then login.`);
+    throw httpError(401, AUTH_FAIL);
   }
 
   let matched = null;
@@ -107,14 +120,20 @@ async function pickUserWithPassword(ident, password, role) {
   }
   if (!matched) {
     const onlyGoogle = candidates.length === 1 && candidates[0].googleId;
-    if (onlyGoogle) throw httpError(401, "This account uses Google. Click Continue with Google.");
-    throw httpError(401, "Incorrect password. Use the password from signup.");
+    if (onlyGoogle) throw httpError(401, AUTH_FAIL);
+    throw httpError(401, AUTH_FAIL);
   }
   return matched;
 }
 
 router.post(
   "/login",
+  rateLimit({
+    windowMs: AUTH_LIMITS.login.windowMs,
+    max: AUTH_LIMITS.login.max,
+    key: (req) => `login:${clientKey(req)}:${identKey(req.body?.email || req.body?.phone || req.body?.username)}`,
+    message: "Too many login attempts. Try again later.",
+  }),
   asyncHandler(async (req, res) => {
     const ident = cleanIdent(req.body.email || req.body.phone || req.body.username || "");
     const password = String(req.body.password || "");
@@ -152,6 +171,7 @@ router.post(
   auth,
   asyncHandler(async (req, res) => {
     await Session.updateOne({ _id: req.sessionId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+    forgetAuthUser(req.userId);
     res.status(204).end();
   })
 );
@@ -161,6 +181,7 @@ router.post(
   auth,
   asyncHandler(async (req, res) => {
     await Session.updateMany({ userId: req.userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+    forgetAuthUser(req.userId);
     res.status(204).end();
   })
 );
@@ -206,16 +227,29 @@ async function issueAuth(user, res, status = 200) {
 
 router.post(
   "/forgot",
+  rateLimit({
+    windowMs: AUTH_LIMITS.forgotIp.windowMs,
+    max: AUTH_LIMITS.forgotIp.max,
+    key: (req) => `forgot-ip:${clientKey(req)}`,
+    message: "Too many OTP requests. Try again later.",
+  }),
+  rateLimit({
+    windowMs: AUTH_LIMITS.forgot.windowMs,
+    max: AUTH_LIMITS.forgot.max,
+    key: (req) => `forgot:${clientKey(req)}:${identKey(req.body?.email)}`,
+    message: "Too many OTP requests. Try again later.",
+  }),
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const role = ["customer", "worker", "business", "provider", "admin"].includes(req.body.role) ? req.body.role : null;
-    if (!email.includes("@")) throw httpError(400, "Enter the email on your account");
+    if (!email.includes("@") || email.length > 120) throw httpError(400, "Enter the email on your account");
+    const generic = { ok: true, message: "If an account exists for this email, we sent an OTP." };
     const user = await User.findOne({ email, ...(role ? { role } : {}) }).lean();
-    if (!user) throw httpError(404, "No FixBuddy account uses this email");
+    if (!user) return res.json(generic);
     const otpFilter = { email, role: role || "", purpose: "reset" };
     const recent = await Otp.findOne({ ...otpFilter, createdAt: { $gt: new Date(Date.now() - 60 * 1000) } });
-    if (recent) throw httpError(429, "Wait a minute, then request a new OTP");
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    if (recent) return res.json(generic);
+    const code = String(crypto.randomInt(100000, 1000000));
     const codeHash = await bcrypt.hash(code, 10);
     await Otp.deleteMany(otpFilter);
     await Otp.create({
@@ -242,30 +276,30 @@ router.post(
         job.lastError = "";
         await job.save();
       }
-    } catch (mailError) {
+    } catch {
       job.status = "failed";
       job.attempts += 1;
-      job.lastError = mailError instanceof Error ? mailError.message : "Send failed";
+      job.lastError = "Send failed";
       job.scheduledAt = new Date(Date.now() + 20_000);
       await job.save();
-      console.log("OTP email failed:", job.lastError);
+      console.error("OTP email failed");
     }
     if (!mailed && process.env.NODE_ENV === "production") {
-      res.status(503).json({ ok: false, queued: true, message: "We could not deliver the OTP yet. Please try again shortly." });
+      res.json(generic);
       return;
     }
-    res.json({
-      ok: true,
-      queued: !mailed,
-      message: mailed
-        ? `OTP sent to ${email}`
-        : "OTP queued for delivery. Check your email shortly.",
-    });
+    res.json(generic);
   })
 );
 
 router.post(
   "/reset",
+  rateLimit({
+    windowMs: AUTH_LIMITS.reset.windowMs,
+    max: AUTH_LIMITS.reset.max,
+    key: (req) => `reset:${clientKey(req)}:${identKey(req.body?.email)}`,
+    message: "Too many OTP checks. Try again later.",
+  }),
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const role = ["customer", "worker", "business", "provider", "admin"].includes(req.body.role) ? req.body.role : null;
@@ -283,7 +317,7 @@ router.post(
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.findOneAndUpdate({ email, ...(role ? { role } : {}) }, { $set: { passwordHash } }, { new: true });
-    if (!user) throw httpError(404, "Account not found");
+    if (!user) throw httpError(400, "OTP does not match");
     await Otp.deleteMany({ email, role: role || "", purpose: "reset" });
     await Session.updateMany({ userId: user._id, revokedAt: null }, { $set: { revokedAt: new Date() } });
     await ensureLoginLicense(user);
@@ -293,6 +327,12 @@ router.post(
 
 router.post(
   "/google",
+  rateLimit({
+    windowMs: AUTH_LIMITS.google.windowMs,
+    max: AUTH_LIMITS.google.max,
+    key: (req) => `google:${clientKey(req)}`,
+    message: "Too many Google sign-in attempts. Try again later.",
+  }),
   asyncHandler(async (req, res) => {
     const { getSettings } = await import("../models/PlatformSettings.js");
     const settings = await getSettings();
@@ -307,7 +347,7 @@ router.post(
     if (!user && googleRole) {
       const sameEmail = await User.findOne({ email }).select("role").lean();
       if (sameEmail) {
-        throw httpError(401, `This Google account is registered as ${roleLabel(sameEmail.role)}. Select ${roleLabel(sameEmail.role)}, then continue with Google.`);
+        throw httpError(401, AUTH_FAIL);
       }
     }
     if (!user) {

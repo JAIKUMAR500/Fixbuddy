@@ -6,6 +6,13 @@ import { Session } from "../models/Session.js";
 import { httpError } from "../utils/asyncHandler.js";
 import { hasValidLicense } from "../utils/license.js";
 
+/**
+ * Cross-origin SPA (Vercel) + API (Render) keeps Bearer JWT in localStorage.
+ * HttpOnly cookie migration would require SameSite=None credentials on every
+ * fetch and would break existing clients; harden sessions instead of migrating.
+ * Never log tokens.
+ */
+
 const userCache = new Map();
 const USER_TTL_MS = 20_000;
 const SEEN_TTL_MS = 60_000;

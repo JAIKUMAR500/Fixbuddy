@@ -8,9 +8,21 @@ import { presentCrew } from "../utils/serialize.js";
 import { isCreator, isSeeker, isAdmin } from "../utils/roles.js";
 import { getSettings } from "../models/PlatformSettings.js";
 import { crewSplit } from "../utils/workerPower.js";
-import { findWorkerLockedJob, LOCK_MESSAGE } from "../utils/jobLock.js";
+import { WorkerLock } from "../models/WorkerLock.js";
+import {
+  acquireWorkerLocks,
+  LOCK_MESSAGE,
+  PENDING_JOB_STATUSES,
+  healWorkerLock,
+  isDuplicateKeyError,
+  isEngagedJobStatus,
+  rollbackCreatedLocks,
+} from "../utils/jobLock.js";
+import { paramObjectId } from "../middleware/validate.js";
 
 const router = Router();
+
+router.param("id", paramObjectId("id"));
 
 async function hydrate(crew) {
   const ids = (crew.members || []).map((m) => m.userId).filter(Boolean);
@@ -260,40 +272,68 @@ router.post(
     const crew = await Crew.findById(req.params.id);
     if (!crew) throw httpError(404, "Team not found");
     requireLeader(crew, req.userId);
-    const doc = await Request.findById(req.params.jobId);
-    if (!doc || String(doc.crewId) !== String(crew._id)) throw httpError(404, "Team job not found");
+    const jobId = req.params.jobId;
+    const current = await Request.findById(jobId);
+    if (!current || String(current.crewId) !== String(crew._id)) throw httpError(404, "Team job not found");
     if (req.body.reject) {
-      doc.crewId = null;
-      doc.timeline.push({ status: doc.status, note: `${crew.name} declined the team job`, at: new Date() });
-      await doc.save();
-      await notify(doc.customerId, { type: "info", text: `${crew.name} cannot take this team job`, requestId: doc._id });
+      current.crewId = null;
+      current.timeline.push({ status: current.status, note: `${crew.name} declined the team job`, at: new Date() });
+      await current.save();
+      await notify(current.customerId, { type: "info", text: `${crew.name} cannot take this team job`, requestId: current._id });
       return res.json({ ok: true, rejected: true });
     }
-    if (!["matching", "open", "requested"].includes(doc.status) || doc.providerId) {
+    if (String(current.providerId || "") === String(crew.leaderId) && isEngagedJobStatus(current.status)) {
+      const members = [crew.leaderId, ...(current.crewMemberIds || [])];
+      await Promise.all(members.map((id) => healWorkerLock(id, current._id).catch(() => {})));
+      return res.json({ ok: true });
+    }
+    if (!PENDING_JOB_STATUSES.includes(current.status) || current.providerId) {
       throw httpError(409, "This job is no longer available");
     }
     const ids = (req.body.memberIds || []).map(String);
     const activeIds = crew.members.filter((m) => m.status === "active").map((m) => String(m.userId));
     const assigned = ids.filter((id) => activeIds.includes(id));
     if (!assigned.includes(String(crew.leaderId))) assigned.unshift(String(crew.leaderId));
-    if (assigned.length < (doc.workersRequired || 1)) throw httpError(400, "Assign enough team members for this job");
-    for (const id of assigned) {
-      const busy = await findWorkerLockedJob(id);
-      if (busy) throw httpError(409, LOCK_MESSAGE);
+    if (assigned.length < (current.workersRequired || 1)) throw httpError(400, "Assign enough team members for this job");
+
+    const locks = await acquireWorkerLocks(assigned, jobId);
+    let taken;
+    try {
+      taken = await Request.findOneAndUpdate(
+        {
+          _id: jobId,
+          crewId: crew._id,
+          status: { $in: PENDING_JOB_STATUSES },
+          $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: crew.leaderId }],
+        },
+        {
+          $set: {
+            providerId: crew.leaderId,
+            crewMemberIds: assigned,
+            status: "accepted",
+            acceptedAt: new Date(),
+          },
+          $push: { timeline: { status: "accepted", note: `${crew.name} accepted. ${assigned.length} workers assigned.`, at: new Date() } },
+        },
+        { new: true }
+      );
+    } catch (err) {
+      await rollbackCreatedLocks(locks.created, current._id);
+      if (isDuplicateKeyError(err)) throw httpError(409, LOCK_MESSAGE);
+      throw err;
     }
-    doc.providerId = crew.leaderId;
-    doc.crewMemberIds = assigned;
-    doc.status = "accepted";
-    doc.timeline.push({ status: "accepted", note: `${crew.name} accepted. ${assigned.length} workers assigned.`, at: new Date() });
-    await doc.save();
-    await notify(doc.customerId, {
+    if (!taken) {
+      await rollbackCreatedLocks(locks.created, current._id);
+      throw httpError(409, "This job is no longer available");
+    }
+    await notify(taken.customerId, {
       type: "success",
       text: `${crew.name} accepted your team job`,
-      requestId: doc._id,
+      requestId: taken._id,
     });
     for (const id of assigned) {
       if (String(id) === req.userId) continue;
-      await notify(id, { type: "request", text: `You were assigned to ${crew.name} job ${doc.category}`, requestId: doc._id });
+      await notify(id, { type: "request", text: `You were assigned to ${crew.name} job ${taken.category}`, requestId: taken._id });
     }
     res.json({ ok: true });
   })
@@ -310,9 +350,19 @@ router.post(
     if (!doc || String(doc.crewId) !== String(crew._id)) throw httpError(404, "Team job not found");
     const ids = (req.body.memberIds || []).map(String);
     const activeIds = crew.members.filter((m) => m.status === "active").map((m) => String(m.userId));
-    doc.crewMemberIds = ids.filter((id) => activeIds.includes(id));
-    if (!doc.crewMemberIds.map(String).includes(String(crew.leaderId))) doc.crewMemberIds.unshift(crew.leaderId);
+    const next = ids.filter((id) => activeIds.includes(id));
+    if (!next.includes(String(crew.leaderId))) next.unshift(String(crew.leaderId));
+    const prev = (doc.crewMemberIds || []).map(String);
+    if (isEngagedJobStatus(doc.status)) {
+      const added = next.filter((id) => !prev.includes(id));
+      if (added.length) await acquireWorkerLocks(added, doc._id);
+    }
+    doc.crewMemberIds = next;
     await doc.save();
+    if (isEngagedJobStatus(doc.status)) {
+      const removed = prev.filter((id) => !next.includes(id) && id !== String(crew.leaderId));
+      if (removed.length) await WorkerLock.deleteMany({ userId: { $in: removed }, jobId: doc._id });
+    }
     res.json({ ok: true, crewMemberIds: doc.crewMemberIds.map(String) });
   })
 );

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Calendar, ChevronRight, MapPin, Plus } from "lucide-react";
 import { View } from "../../types";
-import { Badge, Button, Card, EmptyState, Input, StatusBadge, SafeImg } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, FetchBanner, Input, StatusBadge, SafeImg } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { AuthAPI, ProviderAPI, type JobRequest, type ReviewsPayload, type ServiceCategory } from "../../api/client";
 import { serviceLabel, servicePrice } from "../../api/display";
@@ -9,8 +9,8 @@ import { useLang } from "../../i18n/LangContext";
 import CategoryIcon from "../../components/CategoryIcon";
 
 export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId } = useApp();
-  const { data, loading } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const { openRequest, jobFocusLocked } = useApp();
+  const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const [tab, setTab] = useState("All");
   const rows = (data?.requests || []).filter((r) => {
     if (tab === "Upcoming") return ["accepted", "scheduled", "on_the_way"].includes(r.status);
@@ -28,20 +28,23 @@ export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) 
           <h1 className="text-2xl sm:text-3xl font-bold font-display mb-2">Bookings</h1>
           <p className="text-slate-500 text-sm">Upcoming, active and completed service appointments.</p>
         </div>
+        {!jobFocusLocked && (
         <button type="button" onClick={() => navigate("create-request")} className="inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-brand text-white text-sm font-semibold"><Plus className="w-4 h-4" /> New booking</button>
+        )}
       </div>
       <div className="flex gap-2 mb-5 overflow-x-auto no-scrollbar">
         {["All", "Upcoming", "In Progress", "Completed", "Cancelled"].map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-xs font-semibold ${tab === t ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600"}`}>{t}</button>
         ))}
       </div>
-      {loading && <Card className="text-sm text-slate-500">Loading bookings...</Card>}
-      {!loading && rows.length === 0 && (
-        <EmptyState icon="📅" title="No bookings yet" description="When a provider accepts your request, it appears here." actionLabel="Find a Service" onAction={() => navigate("create-request")} />
+      <FetchBanner error={error} onRetry={reload} loading={loading} />
+      {loading && !data && <Card className="text-sm text-slate-500">Loading bookings...</Card>}
+      {!loading && !error && rows.length === 0 && (
+        <EmptyState icon="📅" title="No bookings yet" description="When a provider accepts your request, it appears here." actionLabel={jobFocusLocked ? "Track Active Job" : "Find a Service"} onAction={() => navigate(jobFocusLocked ? "active-job" : "create-request")} />
       )}
       <div className="space-y-3">
         {rows.map((r) => (
-          <Card key={r.id} className="cursor-pointer hover:border-brand hover:shadow-sm transition-all" onClick={() => { setActiveRequestId(r.id); navigate("request-status"); }}>
+          <Card key={r.id} className="cursor-pointer hover:border-brand hover:shadow-sm transition-all" onClick={() => openRequest(r.id, "request-status")}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-semibold">{r.category}</p>
@@ -62,20 +65,21 @@ export function CustomerBookings({ navigate }: { navigate: (v: View) => void }) 
 }
 
 export function CustomerReviewsPage() {
-  const { data, loading } = useFetch<ReviewsPayload>("/reviews");
+  const { data, loading, error, reload } = useFetch<ReviewsPayload>("/reviews");
   const rows = data?.reviews || [];
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto animate-fade-in">
       <h1 className="text-2xl font-bold font-display mb-2">Reviews & Ratings</h1>
       <p className="text-slate-500 text-sm mb-6">Ratings from jobs you completed.</p>
+      <FetchBanner error={error} onRetry={reload} loading={loading} />
       {data && (
         <Card className="mb-5 bg-amber-50 border-amber-200">
           <p className="font-display text-4xl font-black text-amber-600">{data.ratingAvg || 0}</p>
           <p className="text-sm text-slate-600 mt-1">{data.ratingCount || 0} reviews</p>
         </Card>
       )}
-      {loading && <p className="text-sm text-slate-500">Loading reviews...</p>}
-      {!loading && rows.length === 0 && <EmptyState icon="⭐" title="No reviews yet" description="Complete a job to rate your provider." />}
+      {loading && !data && <p className="text-sm text-slate-500">Loading reviews...</p>}
+      {!loading && !error && rows.length === 0 && <EmptyState icon="⭐" title="No reviews yet" description="Complete a job to rate your provider." />}
       <div className="space-y-3">
         {rows.map((r) => (
           <Card key={r.id} className="hover-lift">

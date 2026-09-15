@@ -7,15 +7,20 @@ import { notify } from "../services/notify.js";
 import { ensureConversation } from "../services/chat.js";
 import { asyncHandler, httpError, timeAgo } from "../utils/asyncHandler.js";
 import { isFulfiller } from "../utils/roles.js";
+import { paramObjectId, isValidObjectId } from "../middleware/validate.js";
 import { isOnline } from "../utils/geo.js";
 
 const router = Router();
+
+router.param("id", paramObjectId("id"));
+router.param("messageId", paramObjectId("messageId"));
 
 router.post(
   "/open",
   asyncHandler(async (req, res) => {
     const requestId = req.body.requestId;
     if (!requestId) throw httpError(400, "requestId is required");
+    if (!isValidObjectId(requestId)) throw httpError(400, "Invalid ID");
     const doc = await Request.findById(requestId);
     if (!doc) throw httpError(404, "Request not found");
     const isCustomer = String(doc.customerId) === req.userId;

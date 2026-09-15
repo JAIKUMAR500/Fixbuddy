@@ -6,7 +6,7 @@ import { CrewAPI, type WorkerCrew } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 
 export default function FindCrew({ navigate }: { navigate: (v: View) => void }) {
-  const { activeRequestId, requestData } = useApp();
+  const { activeRequestId, requestData, jobFocusLocked } = useApp();
   const needed = Math.max(2, Number((requestData as { workersRequired?: number })?.workersRequired || 2));
   const [crews, setCrews] = useState<WorkerCrew[]>([]);
   const [error, setError] = useState("");
@@ -37,6 +37,18 @@ export default function FindCrew({ navigate }: { navigate: (v: View) => void }) 
       setBusy("");
     }
   };
+
+  if (jobFocusLocked) {
+    return (
+      <div className="p-4 lg:p-6 max-w-xl">
+        <h1 className="font-display text-2xl font-bold text-slate-900">Active job in progress</h1>
+        <p className="text-sm text-slate-600 mt-2">Your current job is active. Open your current job to continue.</p>
+        <Button className="mt-4" fullWidth onClick={() => navigate("active-job")}>
+          Go to Active Request
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-5 pb-24 max-w-xl">

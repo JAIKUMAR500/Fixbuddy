@@ -109,9 +109,13 @@ export function hasValidLicense(user) {
   return view.status === "active" && view.remainingDays > 0;
 }
 
-/** Signup logs the user in without this check; a valid password must still be able to sign in. */
+/**
+ * Development convenience only. Production never auto-renews — expired users
+ * must be granted access by Super Admin. Idempotent when the license is already valid.
+ */
 export async function ensureLoginLicense(user) {
   if (!user || user.role === "admin" || hasValidLicense(user)) return user;
+  if (process.env.NODE_ENV === "production") return user;
   const view = licenseView(user);
   if (view.status === "revoked") return user;
   user.license = buildLicense({ days: 30, plan: view.plan && view.plan !== "none" ? view.plan : "trial" });

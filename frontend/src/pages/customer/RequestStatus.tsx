@@ -1,7 +1,7 @@
 import React from "react";
 import { ArrowLeft, MapPin, Clock, Phone, MessageSquare, CheckCircle, Play, Flag, Navigation, KeyRound, Wallet, Star } from "lucide-react";
 import { View } from "../../types";
-import { Button, Card, RatingStars, Avatar, EmptyState } from "../../components/ui";
+import { Button, Card, RatingStars, Avatar, EmptyState, FetchBanner } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import TrackMap from "../../components/TrackMap";
 import CancelJobPanel from "../../components/CancelJobPanel";
@@ -10,18 +10,20 @@ import { RequestAPI, ChatAPI, SafetyAPI, mediaUrl, type JobRequest } from "../..
 import { isBusiness } from "../../api/roles";
 import { startCall, jobAllowsCall } from "../../api/phone";
 import { openMapsNav } from "../../api/geo";
-import { canCancelJob, jobError } from "../../api/jobLock";
+import { canCancelJob, jobError, statusLabel } from "../../api/jobLock";
+import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 
 const TRACKING = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"];
 
 export default function RequestStatus({ navigate }: { navigate: (v: View) => void }) {
-  const { activeRequestId, setActiveRequestId, user, refreshCurrentJob } = useApp();
+  const { viewingRequestId, activeRequestId, setActiveRequestId, user, refreshCurrentJob } = useApp();
+  const displayedId = viewingRequestId || activeRequestId;
   const [otpInput, setOtpInput] = React.useState("");
   const [reviewStars, setReviewStars] = React.useState(5);
   const [reviewText, setReviewText] = React.useState("");
   const [showReview, setShowReview] = React.useState(false);
-  const path = activeRequestId ? `/requests/${activeRequestId}` : "/requests/active";
-  const { data, loading, error, reload } = useFetch<{ request: JobRequest | null }>(path, activeRequestId ? 1 : 0);
+  const path = displayedId ? `/requests/${displayedId}` : null;
+  const { data, loading, error, reload } = useFetch<{ request: JobRequest | null }>(path, displayedId ? 1 : 0);
   const [cancelling, setCancelling] = React.useState(false);
   const [reportMsg, setReportMsg] = React.useState("");
   const [acting, setActing] = React.useState("");
@@ -34,9 +36,6 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   const callPhone = worker ? request?.customer?.phone : provider?.phone;
   const amount = request?.workerQuote || request?.estimatedAmount || 0;
 
-  React.useEffect(() => {
-    if (request?.id && !activeRequestId) setActiveRequestId(request.id);
-  }, [request?.id, activeRequestId, setActiveRequestId]);
 
   React.useEffect(() => {
     if (request?.status === "customer_completed" || (request?.paymentStatus === "collected" && request.customerCompleted && request.status !== "reviewed")) {
@@ -45,10 +44,10 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   }, [request?.status, request?.paymentStatus, request?.customerCompleted]);
 
   React.useEffect(() => {
-    if (!request?.id || !TRACKING.includes(request.status)) return;
+    if (!request?.id) return;
     const t = window.setInterval(() => reload(), 8000);
     return () => window.clearInterval(t);
-  }, [request?.id, request?.status, reload]);
+  }, [request?.id, reload]);
 
   React.useEffect(() => {
     if (!worker || !request?.id || !TRACKING.includes(request.status)) return;
@@ -86,7 +85,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   };
 
   const cancelRequest = async (reason: string) => {
-    if (!request?.id) return;
+    if (!request?.id || (displayedId && request.id !== displayedId)) return;
     setCancelling(true);
     setChatError("");
     try {
@@ -146,23 +145,32 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
           </button>
           <div>
             <h1 className="font-display font-bold text-slate-900 text-lg sm:text-xl">Live tracking</h1>
-            <p className="text-sm text-slate-500">{request?.code || "Active request"} · {request?.category || "Service request"}</p>
+            <p className="text-sm text-slate-500">{request?.code || "Request"} · {request?.category || "Service request"}</p>
           </div>
         </div>
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-5 pb-24">
-        {!loading && !request && (
+        <FetchBanner error={error} onRetry={reload} loading={loading} />
+        {!displayedId && !loading && (
           <EmptyState
             icon="📍"
-            title="No Active Requests"
-            description="You currently don't have any active service requests."
-            actionLabel="Find a service"
-            onAction={() => navigate(user?.role === "worker" ? "work-requests" : "create-request")}
+            title="Select a request"
+            description="Open a request from My Requests or My Jobs to view its status."
+            actionLabel="Back"
+            onAction={() => navigate(backView)}
+          />
+        )}
+        {displayedId && !loading && !request && !error && (
+          <EmptyState
+            icon="📍"
+            title="Request not found"
+            description="This request is missing or you no longer have access to it."
+            actionLabel="Back"
+            onAction={() => navigate(backView)}
           />
         )}
         {loading && <Card className="text-base text-slate-500">Loading request status...</Card>}
-        {error && <Card className="border-red-200 bg-red-50 text-base text-red-700">{error}</Card>}
         {chatError && <Card className="border-red-200 bg-red-50 text-base text-red-700">{chatError}</Card>}
 
         {request && (
@@ -170,7 +178,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
             <div className="bg-sky-600 rounded-3xl p-6 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-3">
                 <span className="w-2.5 h-2.5 bg-emerald-300 rounded-full animate-pulse" />
-                <span className="text-sm font-semibold text-sky-100 uppercase tracking-wide">{request.status.replace(/_/g, " ")}</span>
+                <span className="text-sm font-semibold text-sky-100 uppercase tracking-wide">{statusLabel(request.status)}</span>
               </div>
               <h2 className="font-display text-2xl font-bold mb-2">{request.category}</h2>
               <p className="text-sky-50 mb-4">{request.description}</p>
@@ -326,7 +334,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                     <p className="text-center text-sm text-slate-500">Service amount</p>
                     <p className="text-center text-4xl font-black font-display text-slate-900">₹{amount}</p>
                     <Button size="lg" fullWidth loading={!!acting} onClick={() => void run(() => RequestAPI.collectPayment(request.id))}>
-                      <Wallet className="w-5 h-5" /> Confirm payment collected
+                      <Wallet className="w-5 h-5" /> Record simulated collection
                     </Button>
                   </div>
                 )}
@@ -345,9 +353,13 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
 
             {!worker && request.status === "completed" && request.paymentStatus !== "collected" && (
               <Card padding="lg" className="text-center space-y-2">
-                <p className="text-sm text-slate-500">Pay the worker this amount</p>
+                <SimulatedMoneyBanner />
+                <p className="text-sm text-slate-500">Simulated job value</p>
                 <p className="text-4xl font-black font-display">₹{amount}</p>
-                <p className="text-sm text-slate-500">The worker will confirm when they have received it.</p>
+                <p className="text-sm text-slate-500">No real money moves. Confirm to record the simulated settlement.</p>
+                <Button size="lg" fullWidth loading={!!acting} onClick={() => void run(() => RequestAPI.customerComplete(request.id))}>
+                  <CheckCircle className="w-5 h-5" /> Confirm completion (simulated)
+                </Button>
               </Card>
             )}
 
@@ -359,6 +371,15 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                   </Button>
                 )}
               </div>
+            )}
+
+            {request.finance?.settled && (
+              <Card padding="md" className="space-y-1">
+                <SimulatedMoneyBanner />
+                <p className="text-sm text-slate-700">Job value ₹{request.finance.jobPriceRupees}</p>
+                <p className="text-sm text-slate-700">FixBuddy commission {request.finance.commissionPercent}% = ₹{request.finance.commissionRupees}</p>
+                <p className="text-sm text-slate-700">Worker net ₹{request.finance.workerNetRupees}</p>
+              </Card>
             )}
 
             <Card padding="lg">
@@ -395,6 +416,24 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                 ))}
               </div>
             )}
+
+            {(request.workPhotos?.before?.length || request.workPhotos?.during?.length || request.workPhotos?.after?.length) ? (
+              <Card padding="lg" className="space-y-3">
+                <h3 className="font-display font-bold text-slate-900">Proof of work</h3>
+                {(["before", "during", "after"] as const).map((stage) => (
+                  (request.workPhotos?.[stage] || []).length ? (
+                    <div key={stage}>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">{stage}</p>
+                      <div className="flex gap-2 overflow-x-auto">
+                        {(request.workPhotos?.[stage] || []).map((src) => (
+                          <img key={src} src={mediaUrl(src)} alt="" className="h-24 w-24 rounded-xl object-cover bg-slate-100" />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null
+                ))}
+              </Card>
+            ) : null}
 
             {!["payment_collected", "customer_completed", "reviewed", "cancelled"].includes(request.status) && (
               <div className="space-y-2">

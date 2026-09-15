@@ -4,6 +4,7 @@ import { Badge, Button, Card } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { mediaUrl, type JobRequest, type Provider } from "../../api/client";
 import { roleLabel } from "../../api/roles";
+import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 import SupportContact from "../../components/SupportContact";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 
@@ -184,11 +185,12 @@ export function LiveWallet() {
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto space-y-6 animate-slide-up">
       <h1 className="text-2xl font-bold font-display">Wallet</h1>
+      <SimulatedMoneyBanner />
       <UserIdCard />
       <Card className="bg-brand text-white">
         <p className="text-blue-100 text-sm inline-flex items-center gap-2"><Wallet className="w-4 h-4" /> Available balance</p>
         <p className="text-4xl font-black font-display mt-1">₹{(user?.walletBalance || 0).toLocaleString("en-IN")}</p>
-        <p className="text-xs text-blue-100 mt-2">Tied to user ID {user?.userCode}</p>
+        <p className="text-xs text-blue-100 mt-2">Simulated balance · no real money · {user?.userCode}</p>
       </Card>
     </div>
   );

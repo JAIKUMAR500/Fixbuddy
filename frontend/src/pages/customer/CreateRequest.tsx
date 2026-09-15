@@ -23,7 +23,7 @@ interface Props {
 }
 
 export default function CreateRequest({ navigate, onRequestData, requestData }: Props) {
-  const { setActiveRequestId, user, selectedProvider } = useApp();
+  const { setActiveRequestId, user, selectedProvider, jobFocusLocked, currentJob } = useApp();
   const isBiz = isBusiness(user?.role);
   const [step, setStep] = useState(1);
   const [desc, setDesc] = useState(requestData.description || "");
@@ -84,8 +84,14 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
             : timing;
 
   const goNext = async () => {
+    if (submitting) return;
     if (step < 5) {
       setStep(step + 1);
+      return;
+    }
+    if (jobFocusLocked) {
+      setError("Your current job is active. Open your current job to continue.");
+      navigate("active-job");
       return;
     }
     setSubmitting(true);
@@ -167,6 +173,28 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
       setUploading(false);
     }
   };
+
+  if (jobFocusLocked) {
+    return (
+      <div className="min-h-screen bg-canvas flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-brand">Active request</p>
+          <h1 className="font-display text-2xl font-bold text-slate-900">Finish your current job first</h1>
+          <p className="text-sm text-slate-600">
+            {currentJob ? `${currentJob.category} · ${currentJob.status.replace(/_/g, " ")}` : "You already have an active FixBuddy job."}
+          </p>
+          <p className="text-sm text-slate-500">Your current job is active. Open your current job to continue.</p>
+          <button
+            type="button"
+            onClick={() => navigate("active-job")}
+            className="w-full min-h-12 rounded-xl bg-brand text-white font-semibold"
+          >
+            Go to Active Request
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-canvas flex flex-col">

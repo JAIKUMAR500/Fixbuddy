@@ -14,10 +14,11 @@ import { Button, Card } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import TrackMap from "../../components/TrackMap";
 import CancelJobPanel from "../../components/CancelJobPanel";
-import { ChatAPI, RequestAPI, WorkerAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
+import { ChatAPI, RequestAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
-import { canCancelJob, jobError, isEngagedStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
+import { canCancelJob, jobError, isEngagedStatus, statusLabel } from "../../api/jobLock";
+import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 import { startCall } from "../../api/phone";
 import { mapsNavUrl, openMapsNav } from "../../api/geo";
 import { useLang } from "../../i18n/LangContext";
@@ -27,16 +28,6 @@ function cacheJob(job: JobRequest) {
     sessionStorage.setItem(`fb_job_${job.id}`, JSON.stringify(job));
   } catch {
     /* ignore */
-  }
-}
-
-function readCache(id: string | null): JobRequest | null {
-  if (!id) return null;
-  try {
-    const raw = sessionStorage.getItem(`fb_job_${id}`);
-    return raw ? (JSON.parse(raw) as JobRequest) : null;
-  } catch {
-    return null;
   }
 }
 
@@ -63,36 +54,40 @@ function stepActive(status: string, match: string[]) {
 }
 
 export default function ActiveJob({ navigate }: { navigate: (v: View) => void }) {
-  const { user, activeRequestId, setActiveRequestId, setSelectedProvider, refreshCurrentJob } = useApp();
+  const { user, setActiveRequestId, refreshCurrentJob } = useApp();
   const { t } = useLang();
   const worker = isSeeker(user?.role);
-  const [job, setJob] = useState<JobRequest | null>(() => readCache(activeRequestId));
+  const [job, setJob] = useState<JobRequest | null>(null);
+  const [closedHint, setClosedHint] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [busy, setBusy] = useState("");
   const [otp, setOtp] = useState("");
   const [watchUrl, setWatchUrl] = useState("");
-  const [idle, setIdle] = useState<{ minutes: number; estimateInr: number; message: string } | null>(null);
   const [photoStage, setPhotoStage] = useState<"before" | "during" | "after">("before");
 
   const load = useCallback(async () => {
     try {
-      const data = activeRequestId
-        ? await RequestAPI.get(activeRequestId)
-        : await RequestAPI.currentJob();
-      const next = data.request;
-      if (!next) {
-        setJob(null);
+      const focused = await RequestAPI.currentJob();
+      const next = focused.request && isEngagedStatus(focused.request.status) ? focused.request : null;
+      if (next) {
+        setClosedHint(false);
+        setJob(next);
+        setActiveRequestId(next.id);
+        cacheJob(next);
+        setError("");
         return;
       }
-      setJob(next);
-      setActiveRequestId(next.id);
-      cacheJob(next);
+      setJob((prev) => {
+        if (prev) queueMicrotask(() => setClosedHint(true));
+        return null;
+      });
       setError("");
+      await refreshCurrentJob();
     } catch (e) {
-      if (!job) setError(jobError(e));
+      setError(jobError(e));
     }
-  }, [activeRequestId, setActiveRequestId]);
+  }, [setActiveRequestId, refreshCurrentJob]);
 
   useEffect(() => {
     void load();
@@ -119,17 +114,9 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       const now = Date.now();
       if (now - last.t < 15000) return;
       last.t = now;
-      void RequestAPI.pingLocation(job.id, pos.coords.latitude, pos.coords.longitude).catch(() => {});
+      void RequestAPI.pingLocation(job.id, pos.coords.latitude, pos.coords.longitude).catch(() => { });
     });
     return () => navigator.geolocation.clearWatch(watch);
-  }, [worker, job?.id, job?.status]);
-
-  useEffect(() => {
-    if (!worker) return;
-    if (!job || !["payment_collected", "cancelled", "customer_completed", "reviewed"].includes(job.status)) return;
-    void WorkerAPI.idleStatus()
-      .then((d) => setIdle({ minutes: d.minutes, estimateInr: d.estimateInr, message: d.message }))
-      .catch(() => {});
   }, [worker, job?.id, job?.status]);
 
   const loc = async () => {
@@ -170,12 +157,21 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   }, [job?.lat, job?.lng, job?.workerLat, job?.workerLng]);
 
   if (!job) {
+    const nextView = worker ? "worker-next-jobs" : "create-request";
+    const historyView = worker ? "my-jobs" : "my-requests";
     return (
       <div className="p-5 max-w-lg mx-auto space-y-4">
-        <h1 className="font-display text-2xl font-bold">{t("job.activeJob")}</h1>
-        <p className="text-sm text-slate-500">{error || "No active job right now."}</p>
-        <Button onClick={() => navigate(worker ? "worker-next-jobs" : "customer-home")}>
-          {worker ? t("job.findNextJob") : "Home"}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t("job.activeJob")}</p>
+        <h1 className="font-display text-2xl font-bold text-slate-900">No active job</h1>
+        {closedHint ? (
+          <p className="text-sm text-slate-600">Your previous job is completed.</p>
+        ) : null}
+        <p className="text-sm text-slate-500">{error || "Ready for your next job?"}</p>
+        <Button className="w-full min-h-12" onClick={() => navigate(nextView)}>
+          {worker ? "Find New Jobs" : "Post a New Job"}
+        </Button>
+        <Button variant="outline" className="w-full min-h-12" onClick={() => navigate(historyView)}>
+          View completed jobs
         </Button>
       </div>
     );
@@ -183,73 +179,10 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
   const action = jobPrimaryAction(job.status);
   const amount = job.workerQuote || job.estimatedAmount || 0;
-  const finished = isPaidStatus(job.status) || job.status === "cancelled";
   const problemText =
     worker && job.translatedDescription && job.translatedDescription !== job.description
       ? job.translatedDescription
       : job.description;
-
-  if (finished) {
-    return (
-      <div className="p-4 max-w-lg mx-auto space-y-4 pb-28">
-        <Card padding="lg" className="text-center space-y-2 bg-navy text-white border-navy">
-          <p className="text-3xl">{job.status === "cancelled" ? "✕" : "🎉"}</p>
-          <h1 className="font-display text-2xl font-bold">
-            {job.status === "cancelled" ? "Job cancelled" : "Job completed"}
-          </h1>
-          <p className="text-sky-100">{job.category}</p>
-          {job.status === "cancelled" && (
-            <p className="text-sm text-sky-100">
-              {job.cancelledBy === "customer" ? "Customer cancelled the request." : job.cancelReason || "This job was cancelled."}
-            </p>
-          )}
-        </Card>
-          {job.status === "cancelled" && Number(job.travelCompensation || 0) > 0 && worker && (
-          <Card padding="md">
-            <p className="text-xs font-semibold text-slate-500">Travel compensation</p>
-            <p className="font-display text-3xl font-black text-slate-900">₹{job.travelCompensation}</p>
-            <p className="text-sm text-slate-500 mt-1">Added to your wallet.</p>
-          </Card>
-        )}
-        {isPaidStatus(job.status) && (
-          <Card padding="md">
-            <p className="text-sm text-slate-500">Amount</p>
-            <p className="font-display text-3xl font-black">₹{amount}</p>
-            <p className="text-sm text-emerald-700 mt-1">Payment collected</p>
-            {worker && idle && <p className="text-sm text-slate-600 mt-3">{idle.message}</p>}
-          </Card>
-        )}
-        {worker && (
-          <Button
-            className="w-full min-h-14 text-lg"
-            onClick={() => {
-              setActiveRequestId(null);
-              void refreshCurrentJob();
-              navigate("worker-next-jobs");
-            }}
-          >
-            {t("job.findNextJob")}
-          </Button>
-        )}
-        {!worker && job.provider && isPaidStatus(job.status) && (
-          <div className="space-y-2">
-            <Button
-              className="w-full min-h-14"
-              onClick={() => {
-                setSelectedProvider(job.provider);
-                navigate("create-request");
-              }}
-            >
-              Book {job.provider.name.split(" ")[0]} again
-            </Button>
-            <Button variant="outline" className="w-full min-h-12" onClick={() => navigate("request-status")}>
-              Rate worker
-            </Button>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div className="p-4 max-w-lg mx-auto space-y-4 pb-28">
@@ -259,6 +192,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </p>
       )}
       {error && <p className="text-sm bg-red-50 border border-red-100 text-red-700 rounded-xl px-3 py-2">{error}</p>}
+      <SimulatedMoneyBanner />
 
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t("job.activeJob")}</p>
@@ -421,9 +355,20 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </Button>
       )}
       {worker && action === "collect" && (
-        <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("collect", () => RequestAPI.collectPayment(job.id))}>
-          <Wallet className="w-5 h-5" /> {t("job.collect")} ₹{amount}
-        </Button>
+        <div className="space-y-2">
+          <SimulatedMoneyBanner />
+          <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("collect", () => RequestAPI.collectPayment(job.id))}>
+            <Wallet className="w-5 h-5" /> Record simulated collection ₹{amount}
+          </Button>
+        </div>
+      )}
+      {!worker && job.status === "completed" && job.paymentStatus !== "collected" && (
+        <div className="space-y-2">
+          <SimulatedMoneyBanner />
+          <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.customerComplete(job.id))}>
+            Confirm completion (simulated)
+          </Button>
+        </div>
       )}
 
       {canCancelJob(job.status) && (

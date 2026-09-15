@@ -4,8 +4,11 @@ import { auth, requireRole } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { cacheGet, cacheSet, cacheDel } from "../utils/cache.js";
 import { logAudit } from "../utils/audit.js";
+import { paramObjectId } from "../middleware/validate.js";
 
 const router = Router();
+
+router.param("id", paramObjectId("id"));
 
 router.get(
   "/",

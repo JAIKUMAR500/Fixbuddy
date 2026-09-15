@@ -102,6 +102,7 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ["active", "suspended"], default: "active", index: true },
     userCode: { type: String, unique: true, sparse: true, index: true },
     walletBalance: { type: Number, default: 0 },
+    simulatedWalletPaise: { type: Number, default: 0, min: 0 },
     notificationPreferences: { type: notificationPreferencesSchema, default: () => ({}) },
     license: {
       key: { type: String, default: "" },

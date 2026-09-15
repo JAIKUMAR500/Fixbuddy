@@ -3,11 +3,13 @@ import { Review } from "../models/Review.js";
 import { User } from "../models/User.js";
 import { asyncHandler, timeAgo } from "../utils/asyncHandler.js";
 import { isProviderAccount } from "../utils/roles.js";
+import { queryObjectId } from "../middleware/validate.js";
 
 const router = Router();
 
 router.get(
   "/",
+  queryObjectId("providerId"),
   asyncHandler(async (req, res) => {
     const q = req.query.providerId;
     const filter = q

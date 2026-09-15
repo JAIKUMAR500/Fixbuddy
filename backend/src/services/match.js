@@ -1,4 +1,5 @@
 import { User } from "../models/User.js";
+import { WorkerLock } from "../models/WorkerLock.js";
 
 function tokenize(text) {
   return String(text || "")
@@ -23,16 +24,22 @@ export async function matchProviders(request) {
     role: "worker",
     status: "active",
     "provider.onboarded": true,
+    "provider.available": { $ne: false },
   })
     .select("name avatar phone city area lat lng provider")
     .lean();
+  const busy = await WorkerLock.find({ userId: { $in: providers.map((p) => p._id) } })
+    .select("userId")
+    .lean();
+  const busySet = new Set(busy.map((row) => String(row.userId)));
+  const pool = providers.filter((p) => !busySet.has(String(p._id)));
 
   const descTokens = tokenize(request.description);
   const area = String(request.area || "").toLowerCase();
   const city = String(request.city || "").toLowerCase();
   const category = String(request.category || "").toLowerCase();
 
-  const scored = providers
+  const scored = pool
     .map((p) => {
       const prof = p.provider || {};
       let score = 0;

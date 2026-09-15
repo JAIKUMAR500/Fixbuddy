@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
@@ -7,6 +8,23 @@ import { env } from "../config/env.js";
 
 const router = Router();
 const uploadDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../uploads");
+const resolvedUploadDir = path.resolve(uploadDir);
+
+const ALLOWED_IMAGE = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_AUDIO = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/aac",
+  "audio/wav",
+  "audio/wave",
+  "audio/x-wav",
+  "audio/webm",
+  "audio/ogg",
+  "audio/x-m4a",
+]);
+const BLOCKED_EXT = new Set(["svg", "html", "htm", "js", "mjs", "cjs", "wasm", "exe", "sh", "php", "xml", "svgz"]);
+const SAFE_NAME = /^[a-zA-Z0-9._-]+$/;
 
 function ensureDir() {
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -38,29 +56,45 @@ function parseDataUrl(dataUrl) {
 }
 
 function extFor(mime, isAudio) {
-  if (mime.includes("svg")) return "svg";
   if (isAudio) {
-    return mime.split("/")[1].replace("mpeg", "mp3").replace("x-m4a", "m4a").replace("mp4", "m4a");
+    return mime.split("/")[1].replace("mpeg", "mp3").replace("x-m4a", "m4a").replace("mp4", "m4a").replace("x-wav", "wav");
   }
-  return mime.split("/")[1].replace("jpeg", "jpg").replace("pjpeg", "jpg").replace("svg+xml", "svg");
+  return mime.split("/")[1].replace("jpeg", "jpg").replace("pjpeg", "jpg");
+}
+
+function isAllowedRemoteUrl(value) {
+  try {
+    const parsed = new URL(String(value).trim());
+    if (parsed.protocol === "https:") return true;
+    if (parsed.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 router.post(
   "/",
   asyncHandler(async (req, res) => {
     const { dataUrl, filename, url } = req.body || {};
-    if (url && typeof url === "string" && /^https?:\/\//i.test(url.trim())) {
+    if (url && typeof url === "string" && isAllowedRemoteUrl(url)) {
       return res.status(201).json({ url: url.trim(), kind: "image" });
     }
     if (!dataUrl || typeof dataUrl !== "string") throw httpError(400, "File data or image URL is required");
     const parsed = parseDataUrl(dataUrl);
-    if (!parsed) throw httpError(400, "Invalid file. Use JPG, PNG, WebP, SVG, or a voice recording.");
+    if (!parsed) throw httpError(400, "Invalid file. Use JPG, PNG, WebP, GIF, or a voice recording.");
     const { mime, buf } = parsed;
+    if (mime.includes("svg") || mime.includes("html") || mime.includes("xml")) {
+      throw httpError(400, "This file type is not allowed.");
+    }
+    const isAudio = mime.startsWith("audio/");
+    if (isAudio && !ALLOWED_AUDIO.has(mime)) throw httpError(400, "Unsupported audio type.");
+    if (!isAudio && !ALLOWED_IMAGE.has(mime)) throw httpError(400, "Use JPG, PNG, WebP, or GIF.");
     if (mime.includes("heic") || mime.includes("heif")) {
       throw httpError(400, "iPhone HEIC photos are not supported. Export as JPG, then upload.");
     }
-    const isAudio = mime.startsWith("audio/");
     const ext = extFor(mime, isAudio);
+    if (BLOCKED_EXT.has(ext)) throw httpError(400, "This file type is not allowed.");
     const max = isAudio ? 8 * 1024 * 1024 : 5 * 1024 * 1024;
     if (buf.length > max) throw httpError(400, isAudio ? "Voice note must be under 8 MB" : "Image must be under 5 MB");
     ensureDir();
@@ -68,11 +102,35 @@ router.post(
       .replace(/[^a-zA-Z0-9._-]/g, "")
       .replace(/\.[^.]+$/, "")
       .slice(0, 40);
-    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe || (isAudio ? "voice" : "photo")}.${ext}`;
-    fs.writeFileSync(path.join(uploadDir, name), buf);
-    res.status(201).json({ url: publicUrl(req, name), kind: isAudio ? "voice" : ext === "svg" ? "svg" : "image" });
+    const name = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safe || (isAudio ? "voice" : "photo")}.${ext}`;
+    const dest = path.resolve(uploadDir, name);
+    if (!dest.startsWith(resolvedUploadDir + path.sep)) throw httpError(400, "Invalid file name");
+    fs.writeFileSync(dest, buf);
+    res.status(201).json({ url: publicUrl(req, name), kind: isAudio ? "voice" : "image" });
   })
 );
+
+export function serveUpload(req, res) {
+  const name = path.basename(String(req.params.name || ""));
+  if (!SAFE_NAME.test(name)) {
+    return res.status(404).json({ message: "File not found" });
+  }
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  if (BLOCKED_EXT.has(ext) || name.includes("..")) {
+    return res.status(404).json({ message: "File not found" });
+  }
+  const full = path.resolve(resolvedUploadDir, name);
+  if (!full.startsWith(resolvedUploadDir + path.sep)) {
+    return res.status(404).json({ message: "File not found" });
+  }
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+    return res.status(404).json({ message: "File not found" });
+  }
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Disposition", "inline");
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  res.sendFile(full);
+}
 
 export default router;
 export { uploadDir };

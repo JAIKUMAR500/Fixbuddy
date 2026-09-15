@@ -5,7 +5,7 @@ import { Button, Card, EmptyState } from "../../components/ui";
 import { AuthAPI, RequestAPI, WorkerAPI, type WorkerJobCard } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { readGps } from "../../api/geo";
-import { jobError } from "../../api/jobLock";
+import { isWorkerBusyConflict, jobError } from "../../api/jobLock";
 
 const FILTERS: { id: string; label: string }[] = [
   { id: "recommended", label: "Best nearby" },
@@ -16,7 +16,7 @@ const FILTERS: { id: string; label: string }[] = [
 ];
 
 export default function WorkerNextJobs({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, setUser, user } = useApp();
+  const { setActiveRequestId, setUser, user, refreshCurrentJob } = useApp();
   const [jobs, setJobs] = useState<WorkerJobCard[]>([]);
   const [best, setBest] = useState<WorkerJobCard | null>(null);
   const [sort, setSort] = useState("recommended");
@@ -70,10 +70,16 @@ export default function WorkerNextJobs({ navigate }: { navigate: (v: View) => vo
     try {
       await RequestAPI.accept(id);
       setActiveRequestId(id);
+      await refreshCurrentJob();
       navigate("active-job");
     } catch (e) {
       setError(jobError(e));
-      await load();
+      if (isWorkerBusyConflict(e)) {
+        await refreshCurrentJob();
+        navigate("active-job");
+      } else {
+        await load();
+      }
     } finally {
       setBusy("");
     }
@@ -108,7 +114,12 @@ export default function WorkerNextJobs({ navigate }: { navigate: (v: View) => vo
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" className="font-semibold shrink-0" onClick={() => void load()}>Retry</button>
+        </p>
+      )}
       {idle && !lockedId && <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">{idle}</p>}
       {lockedId && (
         <Button fullWidth onClick={() => { setActiveRequestId(lockedId); navigate("active-job"); }}>
@@ -169,7 +180,7 @@ export default function WorkerNextJobs({ navigate }: { navigate: (v: View) => vo
             </Button>
           </Card>
         ))}
-        {!jobs.length && (
+        {!jobs.length && !error && (
           <EmptyState
             icon="📍"
             title="No nearby jobs"

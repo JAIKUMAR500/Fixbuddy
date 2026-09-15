@@ -38,6 +38,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "nav.safety": "Safety",
     "nav.ai": "AI Jobs",
     "nav.signOut": "Sign out",
+    "nav.trackJob": "Track active job",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
     "lang.hi": "हिन्दी",
@@ -80,6 +81,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "job.cancel": "Cancel job",
     "job.findNextJob": "Find next job",
     "job.activeJob": "Active job",
+    "job.goToActive": "Go to Active Request",
+    "job.trackActive": "Track Active Job",
+    "job.focusLocked": "Your current job is active. Open your current job to continue.",
   },
   ta: {
     "nav.home": "முகப்பு",
@@ -110,6 +114,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "nav.safety": "பாதுகாப்பு",
     "nav.ai": "AI வேலைகள்",
     "nav.signOut": "வெளியேறு",
+    "nav.trackJob": "நடப்பு வேலை",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
     "lang.hi": "हिन्दी",
@@ -152,6 +157,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "job.cancel": "ரத்து செய்",
     "job.findNextJob": "அடுத்த வேலை",
     "job.activeJob": "நடப்பு வேலை",
+    "job.goToActive": "நடப்பு கோரிக்கை",
+    "job.trackActive": "நடப்பு வேலையை பார்க்க",
+    "job.focusLocked": "உங்கள் நடப்பு வேலை இன்னும் முடியவில்லை. அதையே தொடருங்கள்.",
   },
   hi: {
     "nav.home": "होम",
@@ -182,6 +190,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "nav.safety": "सुरक्षा",
     "nav.ai": "AI जॉब",
     "nav.signOut": "साइन आउट",
+    "nav.trackJob": "चालू जॉब",
     "lang.en": "English",
     "lang.ta": "தமிழ்",
     "lang.hi": "हिन्दी",
@@ -224,6 +233,9 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     "job.cancel": "जॉब रद्द करें",
     "job.findNextJob": "अगला जॉब खोजें",
     "job.activeJob": "चालू जॉब",
+    "job.goToActive": "एक्टिव रिक्वेस्ट खोलें",
+    "job.trackActive": "एक्टिव जॉब ट्रैक करें",
+    "job.focusLocked": "आपका चालू जॉब अभी एक्टिव है। उसी जॉब को जारी रखें।",
   },
 };
 

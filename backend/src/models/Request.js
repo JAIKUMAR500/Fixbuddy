@@ -111,6 +111,37 @@ const requestSchema = new mongoose.Schema(
     pinCode: { type: String, default: "" },
     cancelledAt: { type: Date, default: null },
     cancelledBy: { type: String, default: "" },
+    finance: {
+      mode: { type: String, default: "development" },
+      status: {
+        type: String,
+        enum: ["not_applicable", "pending_simulation", "simulated", "cancelled", "refunded_simulation"],
+        default: "not_applicable",
+      },
+      jobPricePaise: { type: Number, default: 0, min: 0 },
+      commissionPercent: { type: Number, default: 0, min: 0 },
+      commissionPaise: { type: Number, default: 0, min: 0 },
+      workerGrossPaise: { type: Number, default: 0, min: 0 },
+      workerNetPaise: { type: Number, default: 0, min: 0 },
+      calculatedAt: { type: Date, default: null },
+      settled: { type: Boolean, default: false },
+      walletCredited: { type: Boolean, default: false },
+      settlementRef: { type: String, default: "" },
+    },
+    cancellationFinance: {
+      recorded: { type: Boolean, default: false },
+      reason: { type: String, default: "" },
+      cancelledBy: { type: String, default: "" },
+      cancelledAt: { type: Date, default: null },
+      amountPaise: { type: Number, default: 0, min: 0 },
+      amountRupees: { type: Number, default: 0, min: 0 },
+      payer: { type: String, default: null },
+      receiver: { type: String, default: null },
+      financialStatus: { type: String, default: "not_applicable" },
+      scenario: { type: String, default: "" },
+      financialMode: { type: String, default: "development" },
+      label: { type: String, default: "" },
+    },
   },
   { timestamps: true }
 );
@@ -120,5 +151,17 @@ requestSchema.index({ customerId: 1, createdAt: -1 });
 requestSchema.index({ providerId: 1, status: 1, createdAt: -1 });
 requestSchema.index({ pinCode: 1, category: 1, city: 1, paymentStatus: 1 });
 requestSchema.index({ watchToken: 1, watchTokenExpiresAt: 1 });
+/** Belt-and-suspenders: a providerId may appear on at most one engaged job. WorkerLock is the primary worker-side lock. */
+requestSchema.index(
+  { providerId: 1 },
+  {
+    unique: true,
+    name: "one_engaged_job_per_provider",
+    partialFilterExpression: {
+      providerId: { $type: "objectId" },
+      status: { $in: ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"] },
+    },
+  }
+);
 
 export const Request = mongoose.model("Request", requestSchema);

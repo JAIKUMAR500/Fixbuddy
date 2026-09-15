@@ -4,8 +4,11 @@ import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser, providerCard } from "../utils/serialize.js";
 import { isProviderAccount } from "../utils/roles.js";
 import { km, isOnline } from "../utils/geo.js";
+import { paramObjectId } from "../middleware/validate.js";
+import { WorkerLock } from "../models/WorkerLock.js";
 
 const router = Router();
+router.param("id", paramObjectId("id"));
 
 router.get(
   "/",
@@ -27,7 +30,10 @@ router.get(
     const maxKm = req.query.maxKm != null ? Number(req.query.maxKm) : 40;
     const minRating = req.query.minRating != null ? Number(req.query.minRating) : 0;
     const rows = await User.find(filter).sort({ "provider.ratingAvg": -1 }).limit(80).lean();
+    const busy = await WorkerLock.find({ userId: { $in: rows.map((u) => u._id) } }).select("userId").lean();
+    const busySet = new Set(busy.map((row) => String(row.userId)));
     let providers = rows
+      .filter((u) => !busySet.has(String(u._id)))
       .map((u) => {
         const dist = km(lat, lng, u.lat ?? u.provider?.lat, u.lng ?? u.provider?.lng);
         return providerCard(u, { distance: dist != null ? `${dist.toFixed(1)} km` : "nearby", score: dist == null ? 999 : dist });

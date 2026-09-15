@@ -7,8 +7,10 @@ import { User } from "../models/User.js";
 import { notify } from "../services/notify.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { isAdmin, isSeeker } from "../utils/roles.js";
+import { paramObjectId, isValidObjectId } from "../middleware/validate.js";
 
 const router = Router();
+router.param("id", paramObjectId("id"));
 
 router.post(
   "/incidents",
@@ -27,6 +29,7 @@ router.post(
       : "emergency";
     const requestId = req.body.requestId || null;
     if (requestId) {
+      if (!isValidObjectId(requestId)) throw httpError(400, "Invalid ID");
       const job = await Request.findById(requestId).lean();
       if (!job) throw httpError(404, "Job not found");
       const onJob =
@@ -111,6 +114,7 @@ router.post(
     if (!subject) throw httpError(400, "A reason is required");
     let againstId = req.body.againstId || null;
     if (requestId) {
+      if (!isValidObjectId(requestId)) throw httpError(400, "Invalid ID");
       const job = await Request.findById(requestId).lean();
       if (!job) throw httpError(404, "Job not found");
       const isParty =

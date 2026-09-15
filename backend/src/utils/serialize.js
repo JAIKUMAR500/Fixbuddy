@@ -1,6 +1,8 @@
 import { licenseView } from "./license.js";
 import { km, etaMinutes, isOnline } from "./geo.js";
 import { cancelPolicyFor } from "./jobLock.js";
+import { FINANCIAL_MODE, FINANCE_STATUS, SIMULATION_LABEL } from "../services/payments/config.js";
+import { paiseToRupees } from "../services/payments/money.js";
 
 export function publicUser(user) {
   if (!user) return null;
@@ -31,7 +33,9 @@ export function publicUser(user) {
     lastSeenAt: user.lastSeenAt || null,
     online: user.lastSeenAt ? Date.now() - new Date(user.lastSeenAt).getTime() < 120000 : false,
     status: user.status,
-    walletBalance: user.walletBalance || 0,
+    walletBalance: paiseToRupees(user.simulatedWalletPaise) || user.walletBalance || 0,
+    simulatedWalletPaise: user.simulatedWalletPaise || 0,
+    financialMode: FINANCIAL_MODE,
     license: licenseView(user),
     createdAt: user.createdAt,
     provider: p
@@ -127,7 +131,7 @@ export function providerCard(user, extra = {}) {
     description: p.description || "",
     experience: p.experience || "",
     location: p.location || `${user.area || ""} ${user.city || ""}`.trim(),
-    phone: user.phone || "",
+    phone: extra.revealPhone ? user.phone || "" : "",
     lat: user.lat ?? p.lat ?? null,
     lng: user.lng ?? p.lng ?? null,
     lastSeenAt: user.lastSeenAt || null,
@@ -162,12 +166,12 @@ export function presentRequest(doc, extras = {}) {
     postedByRole: r.postedByRole || "customer",
     description: r.description,
     category: r.category,
-    address: r.address,
+    address: extras.hideContact ? "" : r.address,
     area: r.area,
     city: r.city,
-    landmark: r.landmark || "",
-    lat: r.lat ?? null,
-    lng: r.lng ?? null,
+    landmark: extras.hideContact ? "" : r.landmark || "",
+    lat: extras.hideContact ? null : r.lat ?? null,
+    lng: extras.hideContact ? null : r.lng ?? null,
     workerLat: r.workerLat ?? null,
     workerLng: r.workerLng ?? null,
     workerLocationAt: r.workerLocationAt || null,
@@ -210,10 +214,10 @@ export function presentRequest(doc, extras = {}) {
     workerLanguage: r.workerLanguage || "en",
     translatedDescription: r.translatedDescription || "",
     workPhotos: r.workPhotos || { before: [], during: [], after: [] },
-    tower: extras.hideGate ? "" : r.tower || "",
-    flat: extras.hideGate ? "" : r.flat || "",
-    gateNote: extras.hideGate ? "" : r.gateNote || "",
-    visitorName: extras.hideGate ? "" : r.visitorName || "",
+    tower: extras.hideGate || extras.hideContact ? "" : r.tower || "",
+    flat: extras.hideGate || extras.hideContact ? "" : r.flat || "",
+    gateNote: extras.hideGate || extras.hideContact ? "" : r.gateNote || "",
+    visitorName: extras.hideGate || extras.hideContact ? "" : r.visitorName || "",
     delayReason: r.delayReason || "",
     delayNote: r.delayNote || "",
     preferredProviderId: r.preferredProviderId ? String(r.preferredProviderId) : null,
@@ -222,6 +226,33 @@ export function presentRequest(doc, extras = {}) {
     cancelledBy: r.cancelledBy || "",
     watchActive: !!(r.watchToken && r.watchTokenExpiresAt && new Date(r.watchTokenExpiresAt) > new Date()),
     cancelPolicy: extras.cancelPolicy || cancelPolicyFor(r.status, extras.travelCompensationInr || 75),
+    finance: presentFinance(r),
+    cancellationFinance: r.cancellationFinance?.recorded
+      ? {
+        ...r.cancellationFinance,
+        label: r.cancellationFinance.label || SIMULATION_LABEL,
+      }
+      : null,
+  };
+}
+
+function presentFinance(r) {
+  const f = r.finance || {};
+  return {
+    mode: f.mode || FINANCIAL_MODE,
+    status: f.status || FINANCE_STATUS.NOT_APPLICABLE,
+    jobPricePaise: f.jobPricePaise || 0,
+    commissionPercent: f.commissionPercent || 0,
+    commissionPaise: f.commissionPaise || 0,
+    workerGrossPaise: f.workerGrossPaise || 0,
+    workerNetPaise: f.workerNetPaise || 0,
+    calculatedAt: f.calculatedAt || null,
+    settled: !!f.settled,
+    jobPriceRupees: paiseToRupees(f.jobPricePaise || 0),
+    commissionRupees: paiseToRupees(f.commissionPaise || 0),
+    workerGrossRupees: paiseToRupees(f.workerGrossPaise || 0),
+    workerNetRupees: paiseToRupees(f.workerNetPaise || 0),
+    label: SIMULATION_LABEL,
   };
 }
 

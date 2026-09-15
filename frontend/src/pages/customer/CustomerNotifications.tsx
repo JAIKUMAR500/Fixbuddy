@@ -22,7 +22,7 @@ const iconBg: Record<string, string> = {
 };
 
 export default function CustomerNotifications({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, user } = useApp();
+  const { user, openRequest } = useApp();
   const { data, loading, error, reload } = useFetch<{ unread: number; notifications: AppNotif[] }>("/notifications");
   const notifs = data?.notifications || [];
 
@@ -61,8 +61,7 @@ export default function CustomerNotifications({ navigate }: { navigate: (v: View
                 return;
               }
               if (n.requestId) {
-                setActiveRequestId(n.requestId);
-                navigate(user?.role === "customer" ? "request-status" : "job-details");
+                openRequest(n.requestId, user?.role === "customer" ? "request-status" : "job-details");
               }
             }}
             onKeyDown={(e) => {

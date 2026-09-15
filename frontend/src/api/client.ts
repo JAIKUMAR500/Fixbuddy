@@ -24,7 +24,20 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   };
   const res = await fetch(`${BASE}${path}`, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.message || "Request failed");
+  if (!res.ok) {
+    const skipExpire =
+      path.startsWith("/auth/login") ||
+      path.startsWith("/auth/signup") ||
+      path.startsWith("/auth/google") ||
+      path.startsWith("/auth/forgot") ||
+      path.startsWith("/auth/reset") ||
+      path.startsWith("/auth/logout");
+    if (res.status === 401 && token && !skipExpire) {
+      localStorage.removeItem("fb_token");
+      window.dispatchEvent(new Event("fixbuddy:unauthorized"));
+    }
+    throw new ApiError(res.status, data.message || "Request failed");
+  }
   return data as T;
 }
 
@@ -573,6 +586,8 @@ export type AppUser = {
   online?: boolean;
   status: string;
   walletBalance?: number;
+  simulatedWalletPaise?: number;
+  financialMode?: string;
   license?: UserLicense;
   requestCount?: number;
   completedCount?: number;
@@ -678,6 +693,35 @@ export type JobRequest = {
   cancelledBy?: string;
   watchActive?: boolean;
   cancelPolicy?: { free: boolean; afterTravel: boolean; amount: number; title: string; text: string };
+  finance?: {
+    mode: string;
+    status: string;
+    jobPricePaise: number;
+    commissionPercent: number;
+    commissionPaise: number;
+    workerGrossPaise: number;
+    workerNetPaise: number;
+    calculatedAt: string | null;
+    settled: boolean;
+    jobPriceRupees: number;
+    commissionRupees: number;
+    workerGrossRupees: number;
+    workerNetRupees: number;
+    label: string;
+  } | null;
+  cancellationFinance?: {
+    recorded: boolean;
+    reason: string;
+    cancelledBy: string;
+    cancelledAt?: string | null;
+    amountPaise: number;
+    amountRupees: number;
+    payer: string | null;
+    receiver: string | null;
+    financialStatus: string;
+    scenario: string;
+    label: string;
+  } | null;
 };
 
 export type Provider = {
@@ -766,6 +810,9 @@ export type ServiceCategory = {
 
 export type AdminReview = {
   id: string;
+  requestId?: string;
+  requestCode?: string;
+  category?: string;
   rating: number;
   comment: string;
   createdAt: string;
@@ -787,9 +834,13 @@ export type AdminTxn = {
   _id: string;
   code: string;
   amount: number;
+  amountPaise?: number;
   kind: string;
+  type?: string;
   status: string;
   note: string;
+  simulated?: boolean;
+  financialMode?: string;
   createdAt: string;
 };
 

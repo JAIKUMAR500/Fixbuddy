@@ -149,11 +149,29 @@ export default function AppShell({
   const [open, setOpen] = React.useState(false);
   const [liveNotice, setLiveNotice] = React.useState("");
   const { t, lang, setLang } = useLang();
-  const { setUser, currentJob, setActiveRequestId, unreadNotifications } = useApp();
+  const { setUser, currentJob, jobFocusLocked, setActiveRequestId, unreadNotifications } = useApp();
   const items = itemsFor(variant, t);
+  const navItems =
+    jobFocusLocked && variant !== "admin"
+      ? [{ icon: Flag, label: t("nav.trackJob"), view: "active-job" as View }, ...items]
+      : items;
   const shown = displayName(user);
   const title =
     variant === "admin" ? "Super Admin" : variant === "worker" ? "Worker" : variant === "business" ? "Business" : "Customer";
+
+  const go = (next: View) => {
+    if (next === "active-job" && currentJob) {
+      setActiveRequestId(currentJob.id);
+      navigate("active-job");
+      return;
+    }
+    if (jobFocusLocked && (next === "create-request" || next === "find-crew")) {
+      if (currentJob) setActiveRequestId(currentJob.id);
+      navigate("active-job");
+      return;
+    }
+    navigate(next);
+  };
 
   const pickLang = (id: (typeof LANGS)[number]["id"]) => {
     setLang(id);
@@ -200,17 +218,21 @@ export default function AppShell({
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto thin-scrollbar">
-          {items.map(({ icon: Icon, label, view }) => (
+          {navItems.map(({ icon: Icon, label, view }) => {
+            const blocked = jobFocusLocked && (view === "create-request" || view === "find-crew");
+            return (
             <button
-              key={view}
-              onClick={() => navigate(view)}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${currentView === view ? "bg-brand text-white" : "hover:bg-navy-soft"
+              key={`${view}-${label}`}
+              onClick={() => go(view)}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${
+                currentView === view ? "bg-brand text-white" : blocked ? "opacity-40 hover:bg-navy-soft" : "hover:bg-navy-soft"
                 }`}
             >
               <Icon className="w-5 h-5" />
               {label}
             </button>
-          ))}
+            );
+          })}
         </nav>
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3 mb-3">
@@ -241,17 +263,21 @@ export default function AppShell({
               <button onClick={() => setOpen(false)}><X className="w-4 h-4" /></button>
             </div>
             <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-              {items.map(({ icon: Icon, label, view }) => (
+              {navItems.map(({ icon: Icon, label, view }) => {
+                const blocked = jobFocusLocked && (view === "create-request" || view === "find-crew");
+                return (
                 <button
-                  key={view}
-                  onClick={() => { navigate(view); setOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${currentView === view ? "bg-brand text-white" : "hover:bg-navy-soft"
+                  key={`${view}-${label}`}
+                  onClick={() => { go(view); setOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-base ${
+                    currentView === view ? "bg-brand text-white" : blocked ? "opacity-40 hover:bg-navy-soft" : "hover:bg-navy-soft"
                     }`}
                 >
                   <Icon className="w-5 h-5" />
                   {label}
                 </button>
-              ))}
+                );
+              })}
             </nav>
             <div className="p-4 border-t border-white/10">
               <div className="flex items-center gap-3 mb-3">
@@ -314,7 +340,7 @@ export default function AppShell({
           </div>
         </header>
         <main className="relative z-0 flex-1 overflow-y-auto pb-24 lg:pb-0">
-          {currentJob && currentView !== "active-job" && (
+          {jobFocusLocked && currentJob && currentView !== "active-job" && (
             <button
               type="button"
               onClick={() => {
@@ -324,19 +350,19 @@ export default function AppShell({
               className="w-full text-left px-4 py-3 bg-slate-900 text-white flex items-center justify-between gap-3"
             >
               <span>
-                <span className="block text-[10px] uppercase tracking-wider text-sky-200">Active job</span>
+                <span className="block text-[10px] uppercase tracking-wider text-sky-200">{t("job.activeJob")}</span>
                 <span className="font-semibold">{currentJob.category} · {currentJob.status.replace(/_/g, " ")}</span>
               </span>
-              <span className="text-sm font-semibold text-sky-200">Open</span>
+              <span className="text-sm font-semibold text-sky-200">{t("job.goToActive")}</span>
             </button>
           )}
           {children}
         </main>
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-[90] bg-white border-t border-slate-200 flex safe-bottom">
-          {items.slice(0, 5).map(({ icon: Icon, label, view }) => (
+          {navItems.slice(0, 5).map(({ icon: Icon, label, view }) => (
             <button
-              key={view}
-              onClick={() => navigate(view)}
+              key={`${view}-${label}-m`}
+              onClick={() => go(view)}
               className={`flex-1 py-2 px-0.5 flex flex-col items-center justify-center gap-0.5 min-h-[64px] ${currentView === view ? "text-brand" : "text-slate-400"}`}
             >
               <Icon className="w-6 h-6 shrink-0" />

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppNotif,
   AppUser,
@@ -38,9 +38,12 @@ type Ctx = {
   setRequestData: (d: Ctx["requestData"]) => void;
   selectedProvider: ApiProvider | null;
   setSelectedProvider: (p: ApiProvider | null) => void;
+  viewingRequestId: string | null;
   activeRequestId: string | null;
   setActiveRequestId: (id: string | null) => void;
   currentJob: JobRequest | null;
+  jobFocusLocked: boolean;
+  openRequest: (id: string, dest?: View) => void;
   refreshCurrentJob: () => Promise<JobRequest | null>;
   login: (email: string, password: string, role?: string) => Promise<AppUser>;
   signup: (body: object) => Promise<AppUser>;
@@ -53,7 +56,28 @@ type Ctx = {
 
 const AppContext = createContext<Ctx | null>(null);
 
-const SKIP_JOB_REDIRECT: View[] = ["public-passport", "family-watch", "business-onboarding", "worker-safety", "customer-support", "customer-profile", "business-profile", "worker-passport"];
+const SKIP_JOB_REDIRECT: View[] = [
+  "public-passport",
+  "family-watch",
+  "business-onboarding",
+  "worker-safety",
+  "customer-support",
+  "customer-profile",
+  "business-profile",
+  "worker-passport",
+];
+
+const SHOPPING_VIEWS: View[] = [
+  "create-request",
+  "finding-solutions",
+  "matched-providers",
+  "find-crew",
+  "provider-details",
+];
+
+function isFocusJob(job: JobRequest | null | undefined): job is JobRequest {
+  return Boolean(job && isEngagedStatus(job.status));
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -61,25 +85,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<View>("landing");
   const [requestData, setRequestData] = useState<Ctx["requestData"]>({});
   const [selectedProvider, setSelectedProvider] = useState<ApiProvider | null>(null);
-  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [activeRequestId, setActiveRequestIdState] = useState<string | null>(null);
+  const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
   const [currentJob, setCurrentJob] = useState<JobRequest | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const currentJobRef = useRef<JobRequest | null>(null);
+  currentJobRef.current = currentJob;
 
-  const navigate = useCallback((v: View) => {
-    setView(v);
+  const goToActiveJob = useCallback((job: JobRequest) => {
+    setActiveRequestIdState(job.id);
+    setViewingRequestId(job.id);
+    setView("active-job");
     window.scrollTo(0, 0);
   }, []);
+
+  const navigate = useCallback((v: View) => {
+    const job = currentJobRef.current;
+    if (isFocusJob(job) && SHOPPING_VIEWS.includes(v)) {
+      goToActiveJob(job);
+      return;
+    }
+    setView(v);
+    window.scrollTo(0, 0);
+  }, [goToActiveJob]);
+
+  const setActiveRequestId = useCallback((id: string | null) => {
+    setActiveRequestIdState(id);
+    if (id) setViewingRequestId(id);
+  }, []);
+
+  const openRequest = useCallback(
+    (id: string, dest: View = "request-status") => {
+      const job = currentJobRef.current;
+      setViewingRequestId(id);
+      setActiveRequestIdState(id);
+      if (dest === "active-job") {
+        if (isFocusJob(job) && job.id === id) {
+          setView("active-job");
+          window.scrollTo(0, 0);
+          return;
+        }
+        setView("request-status");
+        window.scrollTo(0, 0);
+        return;
+      }
+      if (isFocusJob(job) && SHOPPING_VIEWS.includes(dest)) {
+        goToActiveJob(job);
+        return;
+      }
+      setView(dest);
+      window.scrollTo(0, 0);
+    },
+    [goToActiveJob]
+  );
 
   const refreshCurrentJob = useCallback(async () => {
     if (!localStorage.getItem("fb_token")) {
       setCurrentJob(null);
+      currentJobRef.current = null;
+      setActiveRequestIdState(null);
       return null;
     }
     try {
       const { request } = await RequestAPI.currentJob();
-      setCurrentJob(request);
-      if (request && isEngagedStatus(request.status)) setActiveRequestId(request.id);
-      return request;
+      const focused = isFocusJob(request) ? request : null;
+      setCurrentJob(focused);
+      currentJobRef.current = focused;
+      return focused;
     } catch {
       return null;
     }
@@ -94,14 +166,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const job = await refreshCurrentJob();
-      if (job && isEngagedStatus(job.status) && (forceJob || SKIP_JOB_REDIRECT.indexOf(view) < 0)) {
-        setActiveRequestId(job.id);
-        navigate("active-job");
+      if (isFocusJob(job) && (forceJob || SKIP_JOB_REDIRECT.indexOf(view) < 0)) {
+        goToActiveJob(job);
         return;
       }
       navigate(roleHome(u));
     },
-    [navigate, refreshCurrentJob, view]
+    [navigate, refreshCurrentJob, view, goToActiveJob]
   );
 
   const routeAfterAuth = useCallback(
@@ -150,13 +221,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       /* The local session must still be removed when the network is unavailable. */
     }
     localStorage.removeItem("fb_token");
+    currentJobRef.current = null;
     setUser(null);
-    setActiveRequestId(null);
+    setActiveRequestIdState(null);
+    setViewingRequestId(null);
     setCurrentJob(null);
     setSelectedProvider(null);
     setUnreadNotifications(0);
-    navigate("landing");
-  }, [navigate]);
+    setView("landing");
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      currentJobRef.current = null;
+      setUser(null);
+      setActiveRequestIdState(null);
+      setViewingRequestId(null);
+      setCurrentJob(null);
+      setSelectedProvider(null);
+      setUnreadNotifications(0);
+      setView("login");
+    };
+    window.addEventListener("fixbuddy:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("fixbuddy:unauthorized", onUnauthorized);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("fb_token");
@@ -188,12 +277,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         try {
           const { request } = await RequestAPI.currentJob();
-          setCurrentJob(request);
-          if (request && isEngagedStatus(request.status)) {
-            setActiveRequestId(request.id);
+          const focused = isFocusJob(request) ? request : null;
+          setCurrentJob(focused);
+          currentJobRef.current = focused;
+          if (focused) {
+            setActiveRequestIdState(focused.id);
             setView("active-job");
             return;
           }
+          setActiveRequestIdState(null);
         } catch {
           /* keep home */
         }
@@ -270,6 +362,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(t);
   }, [user, refreshCurrentJob]);
 
+  useEffect(() => {
+    if (!isFocusJob(currentJob)) return;
+    if (SHOPPING_VIEWS.includes(view)) goToActiveJob(currentJob);
+  }, [currentJob, view, goToActiveJob]);
+
+  const jobFocusLocked = isFocusJob(currentJob);
+
   const value = useMemo(
     () => ({
       user,
@@ -281,8 +380,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectedProvider,
       setSelectedProvider,
       activeRequestId,
+      viewingRequestId,
       setActiveRequestId,
       currentJob,
+      jobFocusLocked,
+      openRequest,
       refreshCurrentJob,
       login,
       signup,
@@ -300,7 +402,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       requestData,
       selectedProvider,
       activeRequestId,
+      viewingRequestId,
       currentJob,
+      jobFocusLocked,
+      openRequest,
       refreshCurrentJob,
       login,
       signup,
@@ -333,7 +438,13 @@ export function useFetch<T>(path: string | null, refreshKey = 0) {
         setData(d);
         setError("");
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => {
+        const network = /failed to fetch|networkerror|load failed|offline/i.test(e.message || "");
+        if (e instanceof ApiError && e.status === 401) setError("Session expired. Please sign in again.");
+        else if (e instanceof ApiError && e.status === 403) setError("You don't have permission to view this.");
+        else if (network) setError("Unable to load data. Check your connection and try again.");
+        else setError(e.message || "Unable to load data");
+      })
       .finally(() => setLoading(false));
   }, [path]);
 

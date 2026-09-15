@@ -39,9 +39,15 @@ export async function todayEarned(workerId) {
     paymentStatus: "collected",
     paymentCollectedAt: { $gte: start },
   })
-    .select("estimatedAmount workerQuote")
+    .select("estimatedAmount workerQuote finance")
     .lean();
-  return rows.reduce((s, r) => s + paidAmount(r), 0);
+  return rows.reduce((s, r) => s + simulatedNetRupees(r), 0);
+}
+
+function simulatedNetRupees(r) {
+  const net = Number(r.finance?.workerNetPaise);
+  if (Number.isFinite(net) && net > 0) return Math.trunc(net / 100);
+  return paidAmount(r);
 }
 
 export async function earnedInRange(workerId, from) {

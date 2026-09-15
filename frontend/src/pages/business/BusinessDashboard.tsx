@@ -15,7 +15,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { View } from "../../types";
-import { Button, Card, RatingStars, StatusBadge } from "../../components/ui";
+import { Button, Card, FetchBanner, RatingStars, StatusBadge } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
 import { mediaUrl, WorkerAPI, type JobRequest } from "../../api/client";
@@ -25,10 +25,10 @@ const ASSIGNED = ["accepted", "on_the_way", "arrived", "otp_verified", "in_progr
 const OPEN = ["open", "requested", "matching"];
 
 export default function BusinessDashboard({ navigate }: { navigate: (v: View) => void }) {
-  const { user, setActiveRequestId } = useApp();
+  const { user, jobFocusLocked, currentJob, openRequest } = useApp();
   const worker = isSeeker(user?.role);
-  const { data: statsData } = useFetch<{ stats: Record<string, number> }>("/stats");
-  const { data: inbox } = useFetch<{ requests: JobRequest[] }>(worker ? "/requests?inbox=true" : "/requests");
+  const { data: statsData, error: statsError, reload: reloadStats } = useFetch<{ stats: Record<string, number> }>("/stats");
+  const { data: inbox, error: inboxError, reload: reloadInbox } = useFetch<{ requests: JobRequest[] }>(worker ? "/requests?inbox=true" : "/requests");
   const stats = statsData?.stats || {};
   const list = inbox?.requests || [];
   const incoming = list.filter((r) => OPEN.includes(r.status) && (!worker || !r.providerId));
@@ -37,8 +37,11 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
   const current = assigned[0];
 
   const openJob = (req: JobRequest) => {
-    setActiveRequestId(req.id);
-    navigate(worker && ASSIGNED.includes(req.status) ? "active-job" : worker ? "work-requests" : "my-jobs");
+    if (currentJob && req.id === currentJob.id) {
+      openRequest(req.id, "active-job");
+      return;
+    }
+    openRequest(req.id, worker && ASSIGNED.includes(req.status) ? "active-job" : worker ? "job-details" : "request-status");
   };
 
   return (
@@ -67,12 +70,16 @@ export default function BusinessDashboard({ navigate }: { navigate: (v: View) =>
               </p>
             </div>
           </div>
-          {!worker && (
+          {!worker && !jobFocusLocked && (
             <Button onClick={() => navigate("create-request")}>
               <Plus className="w-4 h-4" /> Post a Job
             </Button>
           )}
+          {!worker && jobFocusLocked && (
+            <Button onClick={() => currentJob && openRequest(currentJob.id, "active-job")}>Track Active Job</Button>
+          )}
         </header>
+        <FetchBanner error={statsError || inboxError} onRetry={() => { reloadStats(); reloadInbox(); }} />
 
         {worker && <WorkerPowerHome navigate={navigate} />}
 

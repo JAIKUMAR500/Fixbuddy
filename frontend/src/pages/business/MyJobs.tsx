@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Calendar, ChevronRight, MapPin, Plus, Wrench } from "lucide-react";
 import { View } from "../../types";
-import { Avatar, Card, EmptyState, Skeleton, StatusBadge } from "../../components/ui";
+import { Avatar, Card, EmptyState, FetchBanner, Skeleton, StatusBadge } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import type { JobRequest } from "../../api/client";
 import { isEngagedStatus, statusLabel } from "../../api/jobLock";
@@ -55,9 +55,9 @@ function JobCardSkeleton() {
 }
 
 export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, user, currentJob } = useApp();
+  const { openRequest, user, currentJob } = useApp();
   const [tab, setTab] = useState<Tab>("All");
-  const { data, loading, error } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const worker = isSeeker(user?.role);
   const rows = data?.requests || [];
   const focusLocked = Boolean(currentJob && isEngagedStatus(currentJob.status));
@@ -82,13 +82,11 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
   const filtered = rows.filter((job) => matchesTab(job.status, tab));
 
   const openJob = (job: JobRequest) => {
-    if (focusLocked && currentJob && job.id !== currentJob.id) {
-      setActiveRequestId(currentJob.id);
-      navigate("active-job");
+    if (currentJob && job.id === currentJob.id && isEngagedStatus(job.status)) {
+      openRequest(job.id, "active-job");
       return;
     }
-    setActiveRequestId(job.id);
-    navigate(isEngagedStatus(job.status) ? "active-job" : worker ? "job-details" : "request-status");
+    openRequest(job.id, isEngagedStatus(job.status) ? "active-job" : worker ? "job-details" : "request-status");
   };
 
   const primaryAction = focusLocked
@@ -157,15 +155,15 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
         })}
       </div>
 
-      {error && <Card className="mb-4 border-red-200 bg-red-50 text-sm text-red-700">{error}</Card>}
+      <FetchBanner error={error} onRetry={reload} loading={loading} />
 
-      {loading ? (
+      {loading && !rows.length ? (
         <div className="space-y-3">
           <JobCardSkeleton />
           <JobCardSkeleton />
           <JobCardSkeleton />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : error && !rows.length ? null : filtered.length === 0 ? (
         <EmptyState
           icon={tab === "Cancelled" ? "🚫" : "🔧"}
           title={tab === "All" ? "No jobs yet" : `No ${tab} jobs`}

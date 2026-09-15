@@ -6,14 +6,14 @@ import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { useApp, useFetch } from "../../api/AppContext";
-import { canCancelJob, jobError } from "../../api/jobLock";
+import { canCancelJob, isWorkerBusyConflict, jobError } from "../../api/jobLock";
 import { openMapsNav } from "../../api/geo";
 
 const OPEN = ["open", "requested", "matching"];
 const ACTIVE = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"];
 
 export default function WorkRequests({ navigate }: { navigate: (v: View) => void }) {
-  const { setActiveRequestId, user, refreshCurrentJob } = useApp();
+  const { setActiveRequestId, user, refreshCurrentJob, jobFocusLocked, currentJob } = useApp();
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests?inbox=true");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
@@ -26,8 +26,10 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
     .filter((r) => OPEN.includes(r.status) && !r.providerId)
     .sort((a, b) => Number(b.invitedProviderIds?.includes(user?.id || "")) - Number(a.invitedProviderIds?.includes(user?.id || "")));
   const worker = user?.role === "worker";
-  const mustFinish = worker && current.length > 0;
-  const job = current[0];
+  const mustFinish = worker && (jobFocusLocked || current.length > 0);
+  const job = currentJob && ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"].includes(currentJob.status)
+    ? currentJob
+    : current[0];
 
   const act = async (id: string, kind: "accept" | "decline" | "start" | "complete" | "enroute" | "arrive" | "collect") => {
     setBusy(id);
@@ -62,6 +64,14 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       reload();
     } catch (e) {
       setActionError(jobError(e));
+      if (kind === "accept") {
+        if (isWorkerBusyConflict(e)) {
+          await refreshCurrentJob();
+          navigate("active-job");
+        } else {
+          reload();
+        }
+      }
     } finally {
       setBusy(null);
     }
@@ -109,10 +119,15 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       </div>
 
       {actionError && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{actionError}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {loading && <Skeleton className="h-48 w-full" />}
+      {error && (
+        <p className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" className="font-semibold" onClick={() => reload()}>Retry</button>
+        </p>
+      )}
+      {loading && !data && <Skeleton className="h-48 w-full" />}
 
-      {!loading && current.length === 0 && available.length === 0 && (
+      {!loading && !error && current.length === 0 && available.length === 0 && (
         <EmptyState
           icon="📋"
           title="No active work order"
@@ -258,7 +273,7 @@ function ActiveJobCard({
         )}
         {action === "collect" && (
           <button disabled={busy} onClick={() => onAction("collect")} className="w-full min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-50">
-            <Wallet className="w-5 h-5" /> Confirm payment ₹{req.workerQuote || req.estimatedAmount || 0}
+            <Wallet className="w-5 h-5" /> Simulated collection ₹{req.workerQuote || req.estimatedAmount || 0}
           </button>
         )}
         <div className="grid grid-cols-4 gap-2">

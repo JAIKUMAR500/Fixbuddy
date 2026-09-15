@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View } from "../../types";
-import { Card, Badge, EmptyState } from "../../components/ui";
+import { Card, Badge, EmptyState, FetchBanner } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
 import type { JobRequest } from "../../api/client";
 
@@ -18,8 +18,8 @@ function labelFor(iso: string) {
 
 export default function BusinessCalendar({ navigate }: { navigate: (v: View) => void }) {
   const [calView, setCalView] = useState<CalView>("Week");
-  const { setActiveRequestId } = useApp();
-  const { data, loading, error } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const { openRequest } = useApp();
+  const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const jobs = data?.requests || [];
 
   const days = useMemo(() => {
@@ -58,8 +58,8 @@ export default function BusinessCalendar({ navigate }: { navigate: (v: View) => 
         </div>
       </div>
 
-      {error && <Card className="border-red-200 bg-red-50 text-sm text-red-700">{error}</Card>}
-      {loading && <Card className="text-sm text-slate-500">Loading jobs...</Card>}
+      {error && <FetchBanner error={error} onRetry={reload} loading={loading} />}
+      {loading && !data && <Card className="text-sm text-slate-500">Loading jobs...</Card>}
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         {days.map((iso) => {
@@ -89,7 +89,7 @@ export default function BusinessCalendar({ navigate }: { navigate: (v: View) => 
         ) : (
           <div className="space-y-3">
             {dayJobs.map((job) => (
-              <Card key={job.id} padding="md" className="flex gap-4 items-center hover:border-sky-300 transition-all cursor-pointer" onClick={() => { setActiveRequestId(job.id); navigate("job-details"); }}>
+              <Card key={job.id} padding="md" className="flex gap-4 items-center hover:border-sky-300 transition-all cursor-pointer" onClick={() => openRequest(job.id, "job-details")}>
                 <div className="flex-shrink-0 text-center">
                   <p className="text-xs text-slate-400">Time</p>
                   <p className="font-bold text-sky-700 text-sm whitespace-nowrap">
@@ -112,7 +112,7 @@ export default function BusinessCalendar({ navigate }: { navigate: (v: View) => 
         <h2 className="font-semibold text-slate-900 mb-3">All Upcoming Jobs</h2>
         <div className="space-y-2">
           {jobs.filter((j) => ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(j.status)).map((job) => (
-            <div key={job.id} className="flex items-center gap-3 bg-white rounded-xl border border-sky-100 px-4 py-3 hover:border-sky-300 transition-all cursor-pointer" onClick={() => { setActiveRequestId(job.id); navigate("job-details"); }}>
+            <div key={job.id} className="flex items-center gap-3 bg-white rounded-xl border border-sky-100 px-4 py-3 hover:border-sky-300 transition-all cursor-pointer" onClick={() => openRequest(job.id, "job-details")}>
               <div className="w-2 h-2 rounded-full bg-sky-400 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-slate-900">{job.category}</p>
