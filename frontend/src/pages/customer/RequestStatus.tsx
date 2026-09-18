@@ -139,14 +139,24 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   return (
     <div className="min-h-screen bg-sky-50 animate-fade-in">
       <header className="sticky top-0 z-10 bg-white border-b border-sky-100">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3 flex-wrap">
           <button onClick={() => navigate(backView)} className="p-3 rounded-xl hover:bg-sky-50 min-w-11 min-h-11">
             <ArrowLeft className="w-6 h-6 text-slate-700" />
           </button>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="font-display font-bold text-slate-900 text-lg sm:text-xl">Live tracking</h1>
             <p className="text-sm text-slate-500">{request?.code || "Request"} · {request?.category || "Service request"}</p>
           </div>
+          {request && canCancelJob(request.status) && (
+            <CancelJobPanel
+              variant="button"
+              worker={worker}
+              job={request}
+              policy={request.cancelPolicy}
+              busy={cancelling}
+              onCancel={(reason) => void cancelRequest(reason)}
+            />
+          )}
         </div>
       </header>
 
@@ -193,29 +203,27 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
               <JobProgress status={request.status} />
             </Card>
 
-            {(request.lat != null || request.workerLat != null) && (
-              <Card padding="none" className="overflow-hidden">
-                <TrackMap
-                  customer={{ lat: request.lat, lng: request.lng }}
-                  worker={{ lat: request.workerLat, lng: request.workerLng }}
-                  navigateTo={
-                    worker
-                      ? { lat: request.lat, lng: request.lng }
-                      : { lat: request.workerLat ?? request.lat, lng: request.workerLng ?? request.lng }
-                  }
-                  origin={
-                    worker
-                      ? { lat: request.workerLat, lng: request.workerLng }
-                      : { lat: request.lat, lng: request.lng }
-                  }
-                  tapHint={worker ? "Open customer location in Google Maps" : "Open worker location in Google Maps"}
-                />
-                <div className="px-4 py-3 flex flex-wrap gap-3 text-xs text-slate-600">
-                  {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
-                  {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
-                </div>
-              </Card>
-            )}
+            <Card padding="none" className="overflow-hidden">
+              <TrackMap
+                customer={{ lat: request.lat, lng: request.lng }}
+                worker={{ lat: request.workerLat, lng: request.workerLng }}
+                navigateTo={
+                  worker
+                    ? { lat: request.lat, lng: request.lng }
+                    : { lat: request.workerLat ?? request.lat, lng: request.workerLng ?? request.lng }
+                }
+                origin={
+                  worker
+                    ? { lat: request.workerLat, lng: request.workerLng }
+                    : { lat: request.lat, lng: request.lng }
+                }
+                tapHint={worker ? "Customer location for this job" : "Worker location for this job"}
+              />
+              <div className="px-4 py-3 flex flex-wrap gap-3 text-xs text-slate-600">
+                {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
+                {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
+              </div>
+            </Card>
 
             {!!request.crewMembers?.length && (
               <Card padding="md">

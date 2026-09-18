@@ -58,7 +58,7 @@ export const env = {
   jwtExpires: process.env.JWT_EXPIRES || "7d",
   clientOrigin:
     process.env.CLIENT_ORIGIN ||
-    "http://localhost:5173,http://localhost:8443,https://fixbuddy-ivory.vercel.app",
+    "http://localhost:5173,http://localhost:8443,https://fixbuddy-ivory.vercel.app,https://localhost,capacitor://localhost",
   publicUrl: process.env.API_PUBLIC_URL || "",
   supportEmail: process.env.SUPPORT_EMAIL || "jaikuma500500@gmail.com",
   smtpHost: process.env.SMTP_HOST || "smtp.gmail.com",

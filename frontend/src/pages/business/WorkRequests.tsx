@@ -151,6 +151,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
           </button>
           {canCancelJob(job.status) && (
             <CancelJobPanel
+              variant="button"
               worker
               job={job}
               policy={job.cancelPolicy}

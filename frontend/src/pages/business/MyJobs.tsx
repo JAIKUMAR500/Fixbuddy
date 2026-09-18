@@ -3,9 +3,10 @@ import { Calendar, ChevronRight, MapPin, Plus, Wrench } from "lucide-react";
 import { View } from "../../types";
 import { Avatar, Card, EmptyState, FetchBanner, Skeleton, StatusBadge } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
-import type { JobRequest } from "../../api/client";
-import { isEngagedStatus, statusLabel } from "../../api/jobLock";
+import { RequestAPI, type JobRequest } from "../../api/client";
+import { canCancelJob, isEngagedStatus, statusLabel } from "../../api/jobLock";
 import { isSeeker } from "../../api/roles";
+import CancelJobPanel from "../../components/CancelJobPanel";
 
 const TABS = ["All", "New", "Accepted", "Upcoming", "In Progress", "Completed", "Cancelled"] as const;
 type Tab = (typeof TABS)[number];
@@ -55,9 +56,10 @@ function JobCardSkeleton() {
 }
 
 export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
-  const { openRequest, user, currentJob } = useApp();
+  const { openRequest, user, currentJob, refreshCurrentJob } = useApp();
   const [tab, setTab] = useState<Tab>("All");
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const [cancellingId, setCancellingId] = useState("");
   const worker = isSeeker(user?.role);
   const rows = data?.requests || [];
   const focusLocked = Boolean(currentJob && isEngagedStatus(currentJob.status));
@@ -185,11 +187,15 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
             const counterpart = worker ? job.customer : job.provider;
             const active = currentJob?.id === job.id && isEngagedStatus(job.status);
             return (
-              <button
+              <div
                 key={job.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => openJob(job)}
-                className={`w-full text-left rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md ${
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") openJob(job);
+                }}
+                className={`w-full text-left rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md cursor-pointer ${
                   active ? "border-slate-900 ring-2 ring-slate-900/10" : "border-slate-200 hover:border-brand/40"
                 }`}
               >
@@ -241,7 +247,30 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
                     <ChevronRight className="w-3.5 h-3.5" />
                   </span>
                 </div>
-              </button>
+                {canCancelJob(job.status) && (
+                  <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                    <CancelJobPanel
+                      variant="button"
+                      worker={worker}
+                      job={job}
+                      policy={job.cancelPolicy}
+                      busy={cancellingId === job.id}
+                      onCancel={(reason) =>
+                        void (async () => {
+                          setCancellingId(job.id);
+                          try {
+                            await RequestAPI.cancel(job.id, { reason });
+                            await refreshCurrentJob();
+                            reload();
+                          } finally {
+                            setCancellingId("");
+                          }
+                        })()
+                      }
+                    />
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

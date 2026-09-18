@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FixBuddy</string>
+    <string name="title_activity_main">FixBuddy</string>
+    <string name="package_name">com.fixbuddy.app</string>
+    <string name="custom_url_scheme">com.fixbuddy.app</string>
+</resources>

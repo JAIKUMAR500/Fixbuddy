@@ -1,6 +1,21 @@
 import React from "react";
-import { MapPin, Navigation } from "lucide-react";
+import { Alert, Box, Button, Chip, Paper, Typography } from "@mui/material";
+import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
+import NavigationIcon from "@mui/icons-material/Navigation";
 import { mapsNavUrl } from "../api/geo";
+
+type Point = { lat?: number | null; lng?: number | null } | null | undefined;
+
+function valid(point: Point) {
+  return point?.lat != null && point?.lng != null ? { lat: point.lat, lng: point.lng } : null;
+}
+
+function embedUrl(dest: { lat: number; lng: number }, origin?: { lat: number; lng: number } | null) {
+  if (origin) {
+    return `https://maps.google.com/maps?saddr=${origin.lat},${origin.lng}&daddr=${dest.lat},${dest.lng}&output=embed`;
+  }
+  return `https://maps.google.com/maps?q=${dest.lat},${dest.lng}&z=15&output=embed`;
+}
 
 export default function TrackMap({
   customer,
@@ -10,57 +25,71 @@ export default function TrackMap({
   origin,
   tapHint,
 }: {
-  customer?: { lat?: number | null; lng?: number | null } | null;
-  worker?: { lat?: number | null; lng?: number | null } | null;
+  customer?: Point;
+  worker?: Point;
   className?: string;
-  navigateTo?: { lat?: number | null; lng?: number | null } | null;
-  origin?: { lat?: number | null; lng?: number | null } | null;
+  navigateTo?: Point;
+  origin?: Point;
   tapHint?: string;
 }) {
   const dest =
-    navigateTo?.lat != null && navigateTo?.lng != null
-      ? { lat: navigateTo.lat, lng: navigateTo.lng }
-      : customer?.lat != null && customer?.lng != null
-        ? { lat: customer.lat, lng: customer.lng }
-        : worker?.lat != null && worker?.lng != null
-          ? { lat: worker.lat, lng: worker.lng }
-          : null;
+    valid(navigateTo) || valid(customer) || valid(worker);
+  const from = valid(origin);
+  const customerPoint = valid(customer);
+  const workerPoint = valid(worker);
 
   if (!dest) {
     return (
-      <div className={`rounded-2xl bg-slate-100 border border-slate-200 px-4 py-8 text-center text-sm text-slate-500 ${className}`}>
-        Location will appear when GPS is available.
-      </div>
+      <Paper variant="outlined" className={className} sx={{ p: 3, textAlign: "center", bgcolor: "background.default" }}>
+        <MapOutlinedIcon color="primary" sx={{ fontSize: 36, mb: 1 }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Map for this job
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          Location will appear here once GPS is available for this job. Cancel is only shown on jobs that can still be cancelled.
+        </Typography>
+      </Paper>
     );
   }
 
-  const href = mapsNavUrl(dest, origin);
+  const href = mapsNavUrl(dest, from);
+  const src = embedUrl(dest, from);
 
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`block rounded-2xl border border-slate-200 bg-white p-4 ${className}`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Google Maps</p>
-      <p className="font-semibold text-slate-900 mt-1">{tapHint || "Open location in Google Maps"}</p>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-        {customer?.lat != null && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2.5 py-1">
-            <span className="w-2 h-2 rounded-full bg-sky-600" /> Customer
-          </span>
-        )}
-        {worker?.lat != null && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-600" /> Worker
-          </span>
-        )}
-      </div>
-      <span className="mt-4 min-h-12 rounded-xl bg-brand text-white font-semibold flex items-center justify-center gap-2">
-        <Navigation className="w-4 h-4" /> Open Google Maps
-        <MapPin className="w-4 h-4" />
-      </span>
-    </a>
+    <Paper variant="outlined" className={className} sx={{ overflow: "hidden" }}>
+      <Box sx={{ px: 2, pt: 1.5, pb: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", justifyContent: "space-between" }}>
+          <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.2, lineHeight: 1.2 }}>
+            Live map
+          </Typography>
+          <Box sx={{ display: "flex", gap: 0.75 }}>
+            {customerPoint && <Chip size="small" color="info" label="Customer" />}
+            {workerPoint && <Chip size="small" color="success" label="Worker" />}
+          </Box>
+        </Box>
+        <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+          {tapHint || "Job location"}
+        </Typography>
+      </Box>
+      <Box sx={{ height: 240, bgcolor: "#e8eef6" }}>
+        <iframe
+          title="Job map"
+          src={src}
+          width="100%"
+          height="240"
+          style={{ border: 0, display: "block" }}
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+      </Box>
+      <Box sx={{ p: 2 }}>
+        <Button fullWidth variant="contained" href={href} target="_blank" rel="noopener noreferrer" startIcon={<NavigationIcon />}>
+          Open in Google Maps
+        </Button>
+        <Alert severity="info" sx={{ mt: 1.5 }}>
+          This map belongs to this job only. Use Google Maps for turn-by-turn directions, then return here for OTP and job actions.
+        </Alert>
+      </Box>
+    </Paper>
   );
 }

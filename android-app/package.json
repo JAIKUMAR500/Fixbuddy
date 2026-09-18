@@ -1,0 +1,21 @@
+{
+  "name": "fixbuddy-android",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "sync": "npm --prefix ../frontend run build:android && npx cap sync android",
+    "open": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/open-android.ps1",
+    "android:sync": "npm run sync",
+    "android:open": "npm run open"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.0.2",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/keyboard": "^7.0.2",
+    "@capacitor/status-bar": "^7.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}

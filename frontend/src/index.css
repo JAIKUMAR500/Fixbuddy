@@ -34,6 +34,17 @@ html, body, #root {
   color: var(--foreground);
 }
 
+html.native-app,
+html.native-app body,
+html.native-app #root {
+  min-height: 100dvh;
+}
+
+html.native-app body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 * { box-sizing: border-box; }
 
 .font-display { font-family: 'Outfit', 'Noto Sans Devanagari', 'Noto Sans Tamil', sans-serif; }

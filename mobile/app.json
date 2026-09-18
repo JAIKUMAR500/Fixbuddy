@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "FixBuddy",
+    "slug": "fixbuddy",
+    "scheme": "fixbuddy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1B3A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fixbuddy.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0B1B3A"
+      },
+      "package": "com.fixbuddy.app",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B1B3A",
+          "image": "./assets/icon.png"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FixBuddy uses your location to match nearby jobs."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FixBuddy uses photos as optional proof of the job."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "FixBuddy records voice notes so workers can hear the problem."
+        }
+      ]
+    ]
+  }
+}

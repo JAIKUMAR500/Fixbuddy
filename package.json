@@ -10,6 +10,9 @@
     "seed": "npm --prefix backend run seed",
     "test": "npm --prefix backend test",
     "test:backend": "npm --prefix backend test",
-    "typecheck": "cd frontend && npx tsc --noEmit"
+    "typecheck": "cd frontend && npx tsc --noEmit",
+    "android:sync": "npm --prefix android-app run sync",
+    "android:open": "npm --prefix android-app run open",
+    "mobile": "npm --prefix mobile start"
   }
 }

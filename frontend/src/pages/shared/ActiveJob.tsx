@@ -17,6 +17,7 @@ import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
+import { Chip } from "@mui/material";
 import { canCancelJob, jobError, isEngagedStatus, statusLabel } from "../../api/jobLock";
 import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 import { startCall } from "../../api/phone";
@@ -194,13 +195,28 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       {error && <p className="text-sm bg-red-50 border border-red-100 text-red-700 rounded-xl px-3 py-2">{error}</p>}
       <SimulatedMoneyBanner />
 
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t("job.activeJob")}</p>
-        <h1 className="font-display text-2xl font-bold text-slate-900">{job.category}</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Job ID {job.code} · {statusLabel(job.status)}
-          {job.etaMinutes ? ` · ETA ${job.etaMinutes} min` : ""}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t("job.activeJob")}</p>
+          <h1 className="font-display text-2xl font-bold text-slate-900">{job.category}</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Job ID {job.code}
+            {job.etaMinutes ? ` · ETA ${job.etaMinutes} min` : ""}
+          </p>
+          <Chip size="small" color="primary" label={statusLabel(job.status)} sx={{ mt: 1 }} />
+        </div>
+        {canCancelJob(job.status) && (
+          <div className="shrink-0">
+            <CancelJobPanel
+              variant="button"
+              worker={worker}
+              job={job}
+              policy={job.cancelPolicy}
+              busy={busy === "cancel"}
+              onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}
+            />
+          </div>
+        )}
       </div>
 
       {job.delayReason && (
@@ -214,30 +230,21 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
       <JobProgress status={job.status} />
 
-      {(job.lat || job.workerLat) && isEngagedStatus(job.status) && (
-        <div className="space-y-2">
-          <TrackMap
-            customer={{ lat: job.lat, lng: job.lng }}
-            worker={{ lat: job.workerLat, lng: job.workerLng }}
-            navigateTo={
-              worker
-                ? { lat: job.lat, lng: job.lng }
-                : { lat: job.workerLat ?? job.lat, lng: job.workerLng ?? job.lng }
-            }
-            origin={
-              worker
-                ? { lat: job.workerLat, lng: job.workerLng }
-                : { lat: job.lat, lng: job.lng }
-            }
-            tapHint={worker ? "Open customer location in Google Maps" : "Open worker location in Google Maps"}
-          />
-          <p className="text-xs text-slate-500 px-1">
-            {worker
-              ? "Opens Google Maps in a new tab. Drive there, then come back and tap Arrived."
-              : "Opens Google Maps in a new tab so you can see where your worker is."}
-          </p>
-        </div>
-      )}
+      <TrackMap
+        customer={{ lat: job.lat, lng: job.lng }}
+        worker={{ lat: job.workerLat, lng: job.workerLng }}
+        navigateTo={
+          worker
+            ? { lat: job.lat, lng: job.lng }
+            : { lat: job.workerLat ?? job.lat, lng: job.workerLng ?? job.lng }
+        }
+        origin={
+          worker
+            ? { lat: job.workerLat, lng: job.workerLng }
+            : { lat: job.lat, lng: job.lng }
+        }
+        tapHint={worker ? "Customer location for this job" : "Worker location for this job"}
+      />
 
       <Card padding="md" className="space-y-2">
         {worker ? (

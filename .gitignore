@@ -29,3 +29,13 @@ pnpm-lock.yaml
 .claude-replay.*
 .tmp-*
 vite.config.*.timestamp-*
+
+# Capacitor / Android Studio local
+android-app/android/.gradle/
+android-app/android/app/build/
+android-app/android/build/
+android-app/android/captures/
+android-app/android/local.properties
+android-app/android/.idea/
+android-app/android/*.iml
+android-app/android/app/.cxx/

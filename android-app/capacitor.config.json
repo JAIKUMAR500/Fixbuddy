@@ -1,0 +1,16 @@
+{
+  "appId": "com.fixbuddy.app",
+  "appName": "FixBuddy",
+  "webDir": "../frontend/dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "Keyboard": {
+      "resizeOnFullScreen": true
+    }
+  }
+}

@@ -15,6 +15,7 @@ export const CANCELLABLE_JOB_STATUSES = [
   "arrived",
   "otp_verified",
   "in_progress",
+  "completed",
 ];
 export const DELAY_REASONS = ["HEAVY_RAIN", "FOG", "ROAD_BLOCK", "TRAFFIC", "OTHER"];
 
@@ -68,7 +69,7 @@ export function canCancelJob(status) {
 
 export function cancelPolicyFor(status, amount = 75) {
   const s = String(status || "");
-  const traveling = ["on_the_way", "arrived", "otp_verified", "in_progress"].includes(s);
+  const traveling = ["on_the_way", "arrived", "otp_verified", "in_progress", "completed"].includes(s);
   const assigned = ["accepted", "scheduled"].includes(s);
   const pending = PENDING_JOB_STATUSES.includes(s);
   if (pending) {

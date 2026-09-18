@@ -4,14 +4,16 @@ import { View } from "../../types";
 import { Card, Badge, RatingStars, StatusBadge, VerifiedBadge, Button, Avatar, EmptyState, FetchBanner } from "../../components/ui";
 import CategoryIcon from "../../components/CategoryIcon";
 import { useApp, useFetch } from "../../api/AppContext";
-import { mediaUrl, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
-import { isPendingStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
+import { mediaUrl, RequestAPI, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
+import { canCancelJob, isPendingStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
+import CancelJobPanel from "../../components/CancelJobPanel";
 
 export default function CustomerHome({ navigate }: { navigate: (v: View) => void }) {
-  const { user, setRequestData, setSelectedProvider, setActiveRequestId, currentJob, jobFocusLocked, openRequest } = useApp();
+  const { user, setRequestData, setSelectedProvider, setActiveRequestId, currentJob, jobFocusLocked, openRequest, refreshCurrentJob } = useApp();
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const { data: catData, error: catError, reload: reloadCats } = useFetch<{ categories: ServiceCategory[] }>("/categories");
   const [search, setSearch] = useState("");
+  const [cancelling, setCancelling] = useState(false);
   const [category, setCategory] = useState("");
   const [availableOnly, setAvailableOnly] = useState(true);
   const [maxKm, setMaxKm] = useState("40");
@@ -138,6 +140,27 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
             {currentJob.etaMinutes ? ` · ETA ${currentJob.etaMinutes} min` : ""}
           </p>
           <Button onClick={() => { setActiveRequestId(currentJob.id); navigate("active-job"); }}>Track Active Job</Button>
+          {canCancelJob(currentJob.status) && (
+            <CancelJobPanel
+              variant="button"
+              worker={false}
+              job={currentJob}
+              policy={currentJob.cancelPolicy}
+              busy={cancelling}
+              onCancel={(reason) =>
+                void (async () => {
+                  setCancelling(true);
+                  try {
+                    await RequestAPI.cancel(currentJob.id, { reason });
+                    await refreshCurrentJob();
+                    reload();
+                  } finally {
+                    setCancelling(false);
+                  }
+                })()
+              }
+            />
+          )}
         </Card>
       )}
       {pending.length > 0 && (

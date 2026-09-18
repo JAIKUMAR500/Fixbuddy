@@ -18,7 +18,7 @@ connectDb()
   .then(async () => {
     await ensureProductionAccounts();
     await ensureCanonicalCategories();
-    app.listen(env.port, () => {
+    app.listen(env.port, "0.0.0.0", () => {
       console.log(`Fixbuddy API on http://localhost:${env.port}`);
       console.log("MongoDB connected");
       logStartupConfig();

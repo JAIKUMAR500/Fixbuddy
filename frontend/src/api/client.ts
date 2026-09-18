@@ -1,6 +1,14 @@
-﻿function apiBase() {
+﻿import { Capacitor } from "@capacitor/core";
+
+/** Live Express API. Used by the Android WebView when VITE_API_URL is empty. */
+const PRODUCTION_API = "https://fixbuddy-1-nh5a.onrender.com";
+
+function apiBase() {
   const raw = String(import.meta.env.VITE_API_URL || "").trim();
-  if (!raw) return "/api";
+  if (!raw) {
+    if (Capacitor.isNativePlatform()) return `${PRODUCTION_API.replace(/\/$/, "")}/api`;
+    return "/api";
+  }
   const noSlash = raw.replace(/\/$/, "");
   return noSlash.endsWith("/api") ? noSlash : `${noSlash}/api`;
 }

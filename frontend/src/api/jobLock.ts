@@ -28,6 +28,7 @@ export const CANCELLABLE_JOB_STATUSES = [
   "arrived",
   "otp_verified",
   "in_progress",
+  "completed",
 ];
 
 export function isEngagedStatus(status?: string | null) {

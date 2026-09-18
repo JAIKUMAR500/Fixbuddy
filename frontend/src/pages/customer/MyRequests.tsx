@@ -3,13 +3,15 @@ import { ChevronRight, MapPin, Calendar, Plus, ClipboardList } from "lucide-reac
 import { View } from "../../types";
 import { Tabs, StatusBadge, EmptyState, Card, FetchBanner } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
-import type { JobRequest } from "../../api/client";
-import { isEngagedStatus } from "../../api/jobLock";
+import { RequestAPI, type JobRequest } from "../../api/client";
+import { canCancelJob, isEngagedStatus } from "../../api/jobLock";
+import CancelJobPanel from "../../components/CancelJobPanel";
 
 export default function MyRequests({ navigate }: { navigate: (v: View) => void }) {
   const [tab, setTab] = useState("Active");
-  const { openRequest, jobFocusLocked } = useApp();
+  const { openRequest, jobFocusLocked, refreshCurrentJob } = useApp();
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
+  const [cancellingId, setCancellingId] = useState("");
   const rows = data?.requests || [];
 
   const filtered = rows.filter((request) => {
@@ -100,6 +102,29 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
                   View Details <ChevronRight className="w-3.5 h-3.5" />
                 </span>
               </div>
+              {canCancelJob(r.status) && (
+                <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                  <CancelJobPanel
+                    variant="button"
+                    worker={false}
+                    job={r}
+                    policy={r.cancelPolicy}
+                    busy={cancellingId === r.id}
+                    onCancel={(reason) =>
+                      void (async () => {
+                        setCancellingId(r.id);
+                        try {
+                          await RequestAPI.cancel(r.id, { reason });
+                          await refreshCurrentJob();
+                          reload();
+                        } finally {
+                          setCancellingId("");
+                        }
+                      })()
+                    }
+                  />
+                </div>
+              )}
             </Card>
           ))}
         </div>
