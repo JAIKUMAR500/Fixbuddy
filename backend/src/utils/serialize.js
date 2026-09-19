@@ -3,6 +3,7 @@ import { km, etaMinutes, isOnline, TRACKING_STATUSES } from "./geo.js";
 import { approxCoord, cancelPolicyFor } from "./jobLock.js";
 import { FINANCIAL_MODE, FINANCE_STATUS, SIMULATION_LABEL } from "../services/payments/config.js";
 import { paiseToRupees } from "../services/payments/money.js";
+import { typicalPrice } from "./guidePrices.js";
 
 export function publicUser(user) {
   if (!user) return null;
@@ -174,7 +175,9 @@ export function presentRequest(doc, extras = {}) {
     lng: extras.hideContact ? approxCoord(r.lng) : r.lng ?? null,
     workerLat: TRACKING_STATUSES.includes(r.status) ? r.workerLat ?? null : null,
     workerLng: TRACKING_STATUSES.includes(r.status) ? r.workerLng ?? null : null,
-    workerLocationAt: r.workerLocationAt || null,
+    workerLocationAt: TRACKING_STATUSES.includes(r.status) ? r.workerLocationAt || null : null,
+    trackingActive: TRACKING_STATUSES.includes(r.status),
+    arrivedAt: r.arrivedAt || null,
     photos: r.photos || [],
     voiceNote: r.voiceNote || "",
     timing: r.timing,
@@ -182,7 +185,7 @@ export function presentRequest(doc, extras = {}) {
     scheduledLabel: r.scheduledLabel || formatWhen(r.scheduledAt, r.timing),
     budgetMin: r.budgetMin || 0,
     budgetMax: r.budgetMax || 0,
-    estimatedAmount: r.estimatedAmount || 0,
+    estimatedAmount: r.estimatedAmount || typicalPrice(r.category),
     workerQuote: r.workerQuote ?? null,
     tags: r.tags || [],
     publicPost: r.publicPost,

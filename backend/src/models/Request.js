@@ -36,6 +36,7 @@ const requestSchema = new mongoose.Schema(
     workerLat: { type: Number, default: null },
     workerLng: { type: Number, default: null },
     workerLocationAt: { type: Date, default: null },
+    arrivedAt: { type: Date, default: null },
     jobOtp: { type: String, default: "" },
     jobOtpExpiresAt: { type: Date, default: null },
     jobOtpAttempts: { type: Number, default: 0 },

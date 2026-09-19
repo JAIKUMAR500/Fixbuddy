@@ -10,6 +10,7 @@ import { ApiError } from "../services/api";
 import { useAuth } from "../store/AuthContext";
 import { isEngagedStatus, statusLabel } from "../utils/jobStatus";
 import type { JobRequest } from "../types";
+import { formatRupees, jobAmountRupees } from "../utils/money";
 
 const STAGES = ["Understanding your request…", "Finding nearby workers…", "Matching skills…", "Waiting for a worker to accept…"];
 
@@ -65,7 +66,7 @@ export default function MatchingView({ activeHref, jobsHref }: { activeHref: str
         <Text style={styles.body}>{STAGES[stage]}</Text>
         {job ? (
           <Text style={styles.job}>
-            {job.category} · {statusLabel(job.status)} · ₹{job.estimatedAmount || "—"}
+            {job.category} · {statusLabel(job.status)} · {formatRupees(jobAmountRupees(job))}
           </Text>
         ) : null}
         <ErrorText>{error}</ErrorText>

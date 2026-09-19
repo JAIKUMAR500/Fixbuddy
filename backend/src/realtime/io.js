@@ -2,7 +2,7 @@ import { Server } from "socket.io";
 import { Request } from "../models/Request.js";
 import { resolveAccessToken } from "../middleware/auth.js";
 import { isAllowedOrigin } from "../config/cors.js";
-import { TRACKING_STATUSES } from "../utils/geo.js";
+import { TRACKING_STATUSES, km } from "../utils/geo.js";
 import {
   canJoinJobRoom,
   canJoinUserRoom,
@@ -12,7 +12,7 @@ import {
   userRoom,
 } from "./access.js";
 
-const GPS_MIN_INTERVAL_MS = 8_000;
+const GPS_MIN_INTERVAL_MS = 2_000;
 const lastGpsAt = new Map();
 const seenEvents = new Map();
 const SEEN_TTL_MS = 60_000;
@@ -47,11 +47,24 @@ export function emitToJob(requestId, event, payload) {
   io.to(jobRoom(requestId)).emit(event, payload);
 }
 
+const STATUS_EVENT = {
+  accepted: "job:accepted",
+  on_the_way: "job:accepted",
+  arrived: "worker:arrived",
+  otp_verified: "job:otp_verified",
+  in_progress: "job:started",
+  completed: "job:completion_pending",
+  customer_completed: "job:completed",
+  payment_collected: "job:completed",
+  cancelled: "job:cancelled",
+};
+
 export function emitJobStatusChange(doc) {
   if (!doc?._id) return;
   const requestId = String(doc._id);
   const payload = {
     requestId,
+    jobId: requestId,
     status: doc.status,
     paymentStatus: doc.paymentStatus || "",
     at: Date.now(),
@@ -62,22 +75,36 @@ export function emitJobStatusChange(doc) {
   emitToUser(doc.customerId, "job:status_change", payload);
   emitToUser(doc.providerId, "job:status_change", payload);
   for (const id of doc.crewMemberIds || []) emitToUser(id, "job:status_change", payload);
+  const named = STATUS_EVENT[doc.status];
+  if (named) {
+    emitToJob(requestId, named, payload);
+    emitToUser(doc.customerId, named, payload);
+    emitToUser(doc.providerId, named, payload);
+  }
 }
 
 export function emitLocationUpdate(doc) {
   if (!doc?._id) return;
   if (!TRACKING_STATUSES.includes(String(doc.status))) return;
   const requestId = String(doc._id);
+  const at = doc.workerLocationAt ? new Date(doc.workerLocationAt).getTime() : Date.now();
   const payload = {
     requestId,
+    jobId: requestId,
+    workerId: doc.providerId ? String(doc.providerId) : null,
     lat: doc.workerLat,
     lng: doc.workerLng,
-    at: doc.workerLocationAt ? new Date(doc.workerLocationAt).getTime() : Date.now(),
-    eventId: `loc:${requestId}:${doc.workerLocationAt ? new Date(doc.workerLocationAt).getTime() : Date.now()}`,
+    latitude: doc.workerLat,
+    longitude: doc.workerLng,
+    timestamp: at,
+    at,
+    eventId: `loc:${requestId}:${at}`,
   };
   if (rememberEvent(payload.eventId)) return;
   emitToJob(requestId, "location:update", payload);
+  emitToJob(requestId, "worker:location", payload);
   emitToUser(doc.customerId, "location:update", payload);
+  emitToUser(doc.customerId, "worker:location", payload);
   emitToUser(doc.providerId, "location:update", payload);
 }
 
@@ -172,10 +199,10 @@ export function attachRealtime(server) {
     });
 
     socket.on("location:update", async (body, ack) => {
-      const requestId = String(body?.requestId || "");
-      const lat = Number(body?.lat);
-      const lng = Number(body?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      const requestId = String(body?.requestId || body?.jobId || "");
+      const lat = Number(body?.lat ?? body?.latitude);
+      const lng = Number(body?.lng ?? body?.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
         if (typeof ack === "function") ack({ ok: false, error: "lat and lng are required" });
         return;
       }
@@ -191,10 +218,13 @@ export function attachRealtime(server) {
         return;
       }
       lastGpsAt.set(throttleKey, Date.now());
+      const prevAt = job.workerLocationAt ? new Date(job.workerLocationAt).getTime() : 0;
+      const movedKm = km(job.workerLat, job.workerLng, lat, lng);
+      const persist = !prevAt || Date.now() - prevAt >= 20_000 || (movedKm != null && movedKm * 1000 >= 25);
       job.workerLat = lat;
       job.workerLng = lng;
       job.workerLocationAt = new Date();
-      await job.save();
+      if (persist) await job.save();
       emitLocationUpdate(job);
       if (typeof ack === "function") ack({ ok: true });
     });

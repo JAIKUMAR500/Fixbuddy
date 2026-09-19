@@ -6,6 +6,8 @@ export const RequestAPI = {
   list: (q = "") => api<{ requests: JobRequest[] }>(`/requests${q}`),
   get: (id: string) => api<{ request: JobRequest }>(`/requests/${id}`),
   currentJob: () => api<{ request: JobRequest | null; locked?: boolean }>("/requests/current-job"),
+  pingLocation: (id: string, lat: number, lng: number) =>
+    api<{ request: JobRequest }>(`/requests/${id}/location`, { method: "PATCH", body: JSON.stringify({ lat, lng }) }),
   accept: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/accept`, { method: "POST" }),
   enroute: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/enroute`, { method: "POST", body: JSON.stringify({}) }),
   arrive: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/arrive`, { method: "POST", body: JSON.stringify({}) }),
@@ -17,7 +19,7 @@ export const RequestAPI = {
   review: (id: string, body: { rating: number; comment?: string }) =>
     api<{ request: JobRequest }>(`/requests/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   cancel: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/cancel`, { method: "POST", body: JSON.stringify({}) }),
-  priceBand: (q: string) => api<{ text?: string }>(`/requests/price-band${q}`),
+  priceBand: (q: string) => api<{ text?: string; typical?: number }>(`/requests/price-band${q}`),
 };
 
 export const UploadAPI = {

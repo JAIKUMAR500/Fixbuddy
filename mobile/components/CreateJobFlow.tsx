@@ -10,6 +10,7 @@ import VoiceRecorder from "./VoiceRecorder";
 import VoicePlayer from "./VoicePlayer";
 import { colors, radius, space } from "../constants/theme";
 import { FALLBACK_CATEGORIES, TIMINGS, categoryEmoji } from "../constants/categories";
+import { typicalPrice, guidePriceText, formatRupees } from "../utils/money";
 import { CategoryAPI, RequestAPI, UploadAPI } from "../services/requests";
 import { ApiError } from "../services/api";
 import { mediaUrl } from "../services/media";
@@ -61,7 +62,15 @@ export default function CreateJobFlow({
   useEffect(() => {
     if (!category || !signedIn) return;
     const q = `?category=${encodeURIComponent(category)}&city=${encodeURIComponent(city)}`;
-    void RequestAPI.priceBand(q).then((d) => setBand(d.text || "")).catch(() => setBand(""));
+    void RequestAPI.priceBand(q)
+      .then((d) => {
+        setBand(d.text || guidePriceText(category));
+        setAmount((current) => current || String(d.typical || typicalPrice(category)));
+      })
+      .catch(() => {
+        setBand(guidePriceText(category));
+        setAmount((current) => current || String(typicalPrice(category)));
+      });
   }, [category, city, signedIn]);
 
   if (!signedIn) return <AuthGate role={role === "admin" ? "customer" : role} />;
@@ -161,9 +170,9 @@ export default function CreateJobFlow({
         photos,
         timing,
         scheduledLabel,
-        estimatedAmount: Number(amount || 0),
-        budgetMin: Number(amount || 0),
-        budgetMax: Number(amount || 0),
+        estimatedAmount: Number(amount || typicalPrice(category)),
+        budgetMin: Number(amount || typicalPrice(category)),
+        budgetMax: Number(amount || typicalPrice(category)),
         publicPost: true,
       });
       router.replace(`${matchingHref}?id=${encodeURIComponent(request.id)}`);
@@ -262,7 +271,7 @@ export default function CreateJobFlow({
                 ["Description", description],
                 ["Location", [address, area, city].filter(Boolean).join(", ") || "—"],
                 ["Time", scheduledLabel],
-                ["Budget", amount ? `₹${amount}` : "Not set"],
+                ["Budget", formatRupees(Number(amount || typicalPrice(category)))],
                 ["Voice note", voiceNote ? "Attached" : "None"],
               ].map(([label, value]) => (
                 <View key={label} style={styles.review}>

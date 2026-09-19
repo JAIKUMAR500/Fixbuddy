@@ -6,6 +6,7 @@ import CategoryIcon from "../../components/CategoryIcon";
 import { useApp, useFetch } from "../../api/AppContext";
 import { mediaUrl, RequestAPI, type JobRequest, type Provider, type ServiceCategory } from "../../api/client";
 import { canCancelJob, isPendingStatus, isPaidStatus, statusLabel } from "../../api/jobLock";
+import { formatRupees, jobAmountRupees } from "../../api/money";
 import CancelJobPanel from "../../components/CancelJobPanel";
 
 export default function CustomerHome({ navigate }: { navigate: (v: View) => void }) {
@@ -186,14 +187,13 @@ export default function CustomerHome({ navigate }: { navigate: (v: View) => void
             </button>
           </div>
           {completed.map((r) => {
-            const amount = Number(r.workerQuote || r.estimatedAmount || 0);
+            const amount = jobAmountRupees(r);
             return (
               <Card key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900 truncate">{r.category}</p>
                   <p className="text-xs text-slate-500 truncate">
-                    {r.provider?.name || "Worker"} · {r.code}
-                    {amount > 0 ? ` · ₹${amount}` : ""}
+                    {r.provider?.name || "Worker"} · {r.code} · {formatRupees(amount)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

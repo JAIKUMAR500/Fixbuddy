@@ -9,6 +9,7 @@ import {
   type TextInputProps,
 } from "react-native";
 import { colors, radius, space } from "../constants/theme";
+import { formatRupees } from "../utils/money";
 
 export function Screen({ children, padded = true }: { children: ReactNode; padded?: boolean }) {
   return <View style={[styles.screen, padded && { padding: space.lg }]}>{children}</View>;
@@ -82,7 +83,7 @@ export function Chip({ label, on }: { label: string; on?: boolean }) {
 }
 
 export function Price({ amount }: { amount?: number | null }) {
-  return <Text style={styles.price}>{amount != null && amount > 0 ? `₹${amount}` : "Quote"}</Text>;
+  return <Text style={styles.price}>{formatRupees(amount)}</Text>;
 }
 
 export function EmptyState({ title, body, action, onAction }: { title: string; body: string; action?: string; onAction?: () => void }) {

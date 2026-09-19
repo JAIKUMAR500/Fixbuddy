@@ -201,7 +201,7 @@ test("request identity, lock release, sessions, and admin safety", async (t) => 
     assert.equal(cancelled.status, 200);
     const a = await Request.findById(idA).lean();
     const b = await Request.findById(idB).lean();
-    assert.equal(a.status, "accepted");
+    assert.equal(a.status, "on_the_way");
     assert.equal(String(a.providerId), String(worker._id));
     assert.equal(b.status, "cancelled");
     assert.ok(await WorkerLock.findOne({ userId: worker._id, jobId: idA }).lean());
@@ -290,7 +290,7 @@ test("request identity, lock release, sessions, and admin safety", async (t) => 
     });
     const accepted = await call(url, worker, "POST", `/requests/${jobB.data.request.id}/accept`);
     assert.equal(accepted.status, 200);
-    assert.equal(accepted.data.request.status, "accepted");
+    assert.equal(accepted.data.request.status, "on_the_way");
   });
 
   await t.test("invalid request and admin IDs are 400, missing resources 404", async () => {

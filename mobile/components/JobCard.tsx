@@ -1,12 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Chip, Price } from "./ui";
-import { colors } from "../constants/theme";
+import { jobAmountRupees } from "../utils/money";
 import { categoryEmoji } from "../constants/categories";
 import { statusLabel } from "../utils/jobStatus";
 import type { JobRequest } from "../types";
 
 export default function JobCard({ job, onPress, caption }: { job: JobRequest; onPress?: () => void; caption?: string }) {
-  const amount = job.estimatedAmount || job.workerQuote || 0;
+  const amount = jobAmountRupees(job);
   const dist = job.distance || (job.distanceKm != null ? `${Number(job.distanceKm).toFixed(1)} km` : "");
   return (
     <Card onPress={onPress}>

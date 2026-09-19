@@ -1,4 +1,13 @@
 /** Mirror frontend/src/api/jobLock.ts — do not invent statuses. */
+export const TRACKING_JOB_STATUSES = [
+  "accepted",
+  "scheduled",
+  "on_the_way",
+  "arrived",
+  "otp_verified",
+  "in_progress",
+] as const;
+
 export const ENGAGED_JOB_STATUSES = [
   "accepted",
   "scheduled",
@@ -20,6 +29,10 @@ export const TIMELINE = [
   { status: "in_progress", label: "Work started" },
   { status: "completed", label: "Completed" },
 ] as const;
+
+export function isTrackingStatus(status?: string | null) {
+  return TRACKING_JOB_STATUSES.includes(String(status || "") as (typeof TRACKING_JOB_STATUSES)[number]);
+}
 
 export function isEngagedStatus(status?: string | null) {
   return ENGAGED_JOB_STATUSES.includes(String(status || "") as (typeof ENGAGED_JOB_STATUSES)[number]);

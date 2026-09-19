@@ -54,7 +54,7 @@ test.describe("job lifecycle", () => {
     await signIn(workerPage, worker);
     await workerPage.goto("/job/active");
     await workerPage.getByPlaceholder(/4-digit otp/i).fill(otp);
-    await workerPage.getByRole("button", { name: /^enter otp$/i }).click({ timeout: 15_000 });
+    await workerPage.getByRole("button", { name: /verify otp/i }).click({ timeout: 15_000 });
 
     const start = await request.post(`${API}/api/requests/${job.id}/start`, { headers: authHeaders(worker) });
     expect(start.ok(), await start.text()).toBeTruthy();

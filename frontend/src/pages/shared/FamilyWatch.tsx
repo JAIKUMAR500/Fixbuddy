@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "../../types";
 import { Button, Card } from "../../components/ui";
-import TrackMap from "../../components/TrackMap";
+import LiveTrackMap from "../../components/LiveTrackMap";
 import { PublicAPI, mediaUrl } from "../../api/client";
 import { statusLabel } from "../../api/jobLock";
 import { watchTokenFromPath } from "../../api/routes";
@@ -71,10 +71,9 @@ export default function FamilyWatch({ navigate }: { navigate: (v: View) => void 
             {data.delayText}
           </Card>
         )}
-        <TrackMap
-          customer={undefined}
+        <LiveTrackMap
           worker={data.workerApprox}
-          tapHint="Open worker location in Google Maps"
+          tapHint="Watching the worker live in FixBuddy"
         />
         {data.etaMinutes ? <p className="text-sm text-slate-600">ETA about {data.etaMinutes} minutes</p> : null}
         <Card padding="md">

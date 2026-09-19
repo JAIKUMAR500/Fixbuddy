@@ -44,7 +44,8 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
         }
       };
       if (kind === "accept") {
-        const { request } = await RequestAPI.accept(id);
+        const here = await loc();
+        const { request } = await RequestAPI.accept(id, here);
         setActiveRequestId(request.id);
         await refreshCurrentJob();
         navigate("active-job");
@@ -54,8 +55,6 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       else if (kind === "enroute") {
         const here = await loc();
         await RequestAPI.enroute(id, here);
-        const row = requests.find((r) => r.id === id);
-        if (row?.lat != null && row?.lng != null) openMapsNav({ lat: row.lat, lng: row.lng }, here);
       }
       else if (kind === "arrive") await RequestAPI.arrive(id, await loc());
       else if (kind === "start") await RequestAPI.start(id);
@@ -78,7 +77,7 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
   };
 
   useEffect(() => {
-    if (!job?.id || !["accepted", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(job.status)) return;
+    if (!worker || !job?.id || !["accepted", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(job.status)) return;
     if (!navigator.geolocation) return;
     const last = { t: 0 };
     const watch = navigator.geolocation.watchPosition((pos) => {
@@ -86,9 +85,9 @@ export default function WorkRequests({ navigate }: { navigate: (v: View) => void
       if (now - last.t < 15000) return;
       last.t = now;
       void RequestAPI.pingLocation(job.id, pos.coords.latitude, pos.coords.longitude).catch(() => {});
-    });
+    }, () => {});
     return () => navigator.geolocation.clearWatch(watch);
-  }, [job?.id, job?.status]);
+  }, [worker, job?.id, job?.status]);
 
   const openChat = async (id: string) => {
     setBusy(id);

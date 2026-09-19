@@ -10,8 +10,11 @@ import { colors, radius, space } from "../constants/theme";
 import { RequestAPI } from "../services/requests";
 import { ApiError } from "../services/api";
 import { useAuth } from "../store/AuthContext";
-import { TIMELINE, isEngagedStatus, isPaidStatus, statusLabel } from "../utils/jobStatus";
+import { TIMELINE, isEngagedStatus, isPaidStatus, isTrackingStatus, statusLabel } from "../utils/jobStatus";
 import { publicRole } from "../utils/role";
+import LiveTrackMap from "./LiveTrackMap";
+import { useWorkerGps } from "../hooks/useWorkerGps";
+import { formatRupees, jobAmountRupees } from "../utils/money";
 
 export default function ActiveJobView() {
   const { user, signedIn, currentJob, refreshJob } = useAuth();
@@ -22,6 +25,7 @@ export default function ActiveJobView() {
   const role = publicRole(user?.role);
   const job = currentJob;
   const id = job?.id;
+  useWorkerGps(id, job?.status, role === "worker");
 
   useEffect(() => {
     if (!signedIn) return;
@@ -63,7 +67,7 @@ export default function ActiveJobView() {
     0,
     TIMELINE.findIndex((s) => s.status === job.status || (job.status === "scheduled" && s.status === "accepted")),
   );
-  const amount = job.estimatedAmount || job.workerQuote || 0;
+  const amount = jobAmountRupees(job);
   const otherName = role === "worker" ? job.customer?.name : job.provider?.name || job.provider?.businessName;
 
   return (
@@ -72,17 +76,25 @@ export default function ActiveJobView() {
         <Text style={styles.kicker}>ACTIVE JOB</Text>
         <Chip label={statusLabel(job.status)} on />
         <Title>{job.category || "Active job"}</Title>
-        <Text style={styles.price}>₹{amount || "—"}</Text>
+        <Text style={styles.price}>{formatRupees(amount)}</Text>
         <Sub>{job.description || job.area || job.city}</Sub>
         {job.voiceNote ? <VoicePlayer url={job.voiceNote} /> : null}
-        <View style={styles.map}>
-          <Text style={styles.mapText}>{otherName || "Job location"}</Text>
-          <Text style={styles.mapSub}>
-            {job.area || job.city || job.address || "Location on the job"}
-            {job.etaMinutes ? ` · ETA ${job.etaMinutes} min` : ""}
-            {job.distanceKm != null ? ` · ${Number(job.distanceKm).toFixed(1)} km` : ""}
-          </Text>
-        </View>
+        {isTrackingStatus(job.status) ? (
+          <LiveTrackMap
+            customer={{ lat: job.lat, lng: job.lng }}
+            worker={role === "worker" ? null : { lat: job.workerLat, lng: job.workerLng }}
+            workerRole={role === "worker"}
+          />
+        ) : (
+          <View style={styles.map}>
+            <Text style={styles.mapText}>{otherName || "Job location"}</Text>
+            <Text style={styles.mapSub}>
+              {job.area || job.city || job.address || "Location on the job"}
+              {job.etaMinutes ? ` · ETA ${job.etaMinutes} min` : ""}
+              {job.distanceKm != null ? ` · ${Number(job.distanceKm).toFixed(1)} km` : ""}
+            </Text>
+          </View>
+        )}
         {otherName ? (
           <Card>
             <Text style={styles.strong}>{role === "worker" ? "Customer" : "Worker"}</Text>

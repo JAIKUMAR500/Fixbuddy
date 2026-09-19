@@ -11,6 +11,7 @@ import { ApiError } from "../../services/api";
 import { useAuth } from "../../store/AuthContext";
 import { statusLabel } from "../../utils/jobStatus";
 import type { JobRequest } from "../../types";
+import { jobAmountRupees } from "../../utils/money";
 
 export default function JobDetails() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -47,7 +48,7 @@ export default function JobDetails() {
       <ScrollView contentContainerStyle={{ gap: 12 }}>
         <Title>{job?.category || "Job"}</Title>
         <Chip label={statusLabel(job?.status)} />
-        <Price amount={job?.estimatedAmount || job?.workerQuote} />
+        <Price amount={jobAmountRupees(job)} />
         <Sub>{job?.description}</Sub>
         {job?.voiceNote ? <VoicePlayer url={job.voiceNote} /> : null}
         <Card>

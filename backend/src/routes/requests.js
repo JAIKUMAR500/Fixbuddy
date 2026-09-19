@@ -12,7 +12,9 @@ import { getPaymentService, paiseToRupees, rupeesToPaise, SIMULATION_LABEL } fro
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { providerCard, formatWhen, presentRequest } from "../utils/serialize.js";
 import { isAdmin, isCreator, isSeeker } from "../utils/roles.js";
-import { BUSY_JOB_STATUSES, LOCKED_JOB_STATUSES, km } from "../utils/geo.js";
+import { BUSY_JOB_STATUSES, LOCKED_JOB_STATUSES, TRACKING_STATUSES, km, etaMinutes } from "../utils/geo.js";
+import { guidePrice, guidePriceText, typicalPrice } from "../utils/guidePrices.js";
+import { applyWorkerCoords, assertTransition, coordsFromBody } from "../utils/jobState.js";
 import {
   CUSTOMER_FOCUS_MESSAGE,
   DELAY_REASONS,
@@ -51,10 +53,21 @@ async function nextCode() {
   return `REQ-${String(n + 1).padStart(4, "0")}`;
 }
 
-function pushTimeline(doc, status, note) {
+function pushTimeline(doc, status, note, { force = false } = {}) {
+  if (!force) assertTransition(doc.status, status);
   doc.status = status;
   doc.timeline.push({ status, note, at: new Date() });
   emitJobStatusChange(doc);
+}
+
+const LOCATION_PERSIST_MS = 20_000;
+const LOCATION_PERSIST_METERS = 25;
+
+function shouldPersistLocation(doc, lat, lng) {
+  const prevAt = doc.workerLocationAt ? new Date(doc.workerLocationAt).getTime() : 0;
+  if (!prevAt || Date.now() - prevAt >= LOCATION_PERSIST_MS) return true;
+  const movedKm = km(doc.workerLat, doc.workerLng, lat, lng);
+  return movedKm != null && movedKm * 1000 >= LOCATION_PERSIST_METERS;
 }
 
 function canRevealContact(req, doc) {
@@ -133,9 +146,10 @@ router.post(
     const desc = String(description).trim().slice(0, 4000);
     if (!desc) throw httpError(400, "Description and category are required");
     const amountRaw = estimatedAmount ?? budgetMax ?? budgetMin ?? 0;
-    const amount = Number(amountRaw);
+    let amount = Number(amountRaw);
     if (!Number.isFinite(amount) || amount < 0) throw httpError(400, "Amount must be a valid non-negative number");
     if (amount > 500000) throw httpError(400, "Amount is too large");
+    if (!amount) amount = typicalPrice(category);
     if (preferredProviderId && !isValidObjectId(preferredProviderId)) throw httpError(400, "Invalid ID");
     if (crewId && !isValidObjectId(crewId)) throw httpError(400, "Invalid ID");
     const postedByRole = req.user.role === "admin" ? "admin" : req.user.role === "business" || req.user.role === "provider" ? "business" : "customer";
@@ -330,7 +344,17 @@ router.get(
     const rows = await Request.find(match).select("estimatedAmount workerQuote").limit(80).lean();
     const amounts = rows.map((r) => Number(r.workerQuote || r.estimatedAmount || 0)).filter((n) => n > 0).sort((a, b) => a - b);
     if (amounts.length < 3) {
-      return res.json({ city, category, pinCode, min: null, max: null, sample: amounts.length, text: "" });
+      const guide = guidePrice(category);
+      return res.json({
+        city,
+        category,
+        pinCode,
+        min: guide.min,
+        max: guide.max,
+        sample: amounts.length,
+        typical: guide.typical,
+        text: guidePriceText(category),
+      });
     }
     const min = amounts[Math.floor(amounts.length * 0.2)];
     const max = amounts[Math.floor(amounts.length * 0.8)];
@@ -341,6 +365,7 @@ router.get(
       min,
       max,
       sample: amounts.length,
+      typical: amounts[Math.floor(amounts.length * 0.5)] || guidePrice(category).typical,
       text: `Usual price in your area: ₹${min}–₹${max}`,
     });
   })
@@ -367,6 +392,31 @@ router.get(
         .filter(Boolean);
     }
     res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.get(
+  "/:id/tracking",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id).lean();
+    if (!doc) throw httpError(404, "Request not found");
+    if (!canRevealContact(req, doc)) throw httpError(403, NO_ACCESS_MESSAGE);
+    const tracking = TRACKING_STATUSES.includes(doc.status);
+    const dist = tracking ? km(doc.lat, doc.lng, doc.workerLat, doc.workerLng) : null;
+    res.json({
+      requestId: String(doc._id),
+      jobId: String(doc._id),
+      status: doc.status,
+      tracking,
+      workerId: doc.providerId ? String(doc.providerId) : null,
+      latitude: tracking ? doc.workerLat ?? null : null,
+      longitude: tracking ? doc.workerLng ?? null : null,
+      timestamp: tracking && doc.workerLocationAt ? doc.workerLocationAt : null,
+      customerLat: doc.lat ?? null,
+      customerLng: doc.lng ?? null,
+      distanceKm: dist,
+      etaMinutes: etaMinutes(dist),
+    });
   })
 );
 
@@ -523,12 +573,23 @@ router.post(
     const customerLanguage = normalizeLang(taken.customerLanguage || customer?.lang);
     taken.customerLanguage = customerLanguage;
     taken.translatedDescription = translateText(taken.description, customerLanguage, workerLanguage);
+    applyWorkerCoords(taken, req.body);
+    const holdForSchedule =
+      taken.timing === "scheduled" &&
+      taken.scheduledAt &&
+      new Date(taken.scheduledAt).getTime() > Date.now() + 30 * 60 * 1000;
+    if (!holdForSchedule) {
+      pushTimeline(taken, "on_the_way", "Worker accepted and is on the way");
+    }
     await taken.save();
     emitJobStatusChange(taken);
+    if (TRACKING_STATUSES.includes(taken.status)) emitLocationUpdate(taken);
     await ensureConversation(taken);
     await notify(taken.customerId, {
       type: "success",
-      text: `${req.user.provider?.businessName || req.user.name} accepted your job`,
+      text: holdForSchedule
+        ? `${req.user.provider?.businessName || req.user.name} accepted your job`
+        : `${req.user.provider?.businessName || req.user.name} accepted your job and is on the way. Track them live.`,
       requestId: taken._id,
     });
     const others = (taken.invitedProviderIds || []).map(String).filter((id) => id !== req.userId);
@@ -554,7 +615,7 @@ router.post(
     if (wasAssigned) {
       await releaseLocksForJob(doc._id);
       doc.providerId = null;
-      pushTimeline(doc, "open", "Worker declined; job reopened");
+      pushTimeline(doc, "open", "Worker declined; job reopened", { force: true });
     }
     await doc.save();
     await notify(doc.customerId, {
@@ -611,13 +672,10 @@ router.post(
       return res.json({ request: presentRequest(doc, extras), duplicate: true });
     }
     if (!["accepted", "scheduled"].includes(doc.status)) throw httpError(409, "Accept the job first, then start travel.");
-    if (req.body.lat != null && req.body.lng != null) {
-      doc.workerLat = Number(req.body.lat);
-      doc.workerLng = Number(req.body.lng);
-      doc.workerLocationAt = new Date();
-    }
+    applyWorkerCoords(doc, req.body);
     pushTimeline(doc, "on_the_way", "Worker is on the way");
     await doc.save();
+    emitLocationUpdate(doc);
     await notify(doc.customerId, { type: "info", text: "Your worker is on the way. Track them live.", requestId: doc._id });
     const extras = await loadPeople(doc.toObject(), req);
     extras.revealOtp = false;
@@ -642,14 +700,12 @@ router.post(
     doc.jobOtpAttempts = 0;
     doc.jobOtpLockedUntil = null;
     doc.otpVerified = false;
-    if (req.body.lat != null && req.body.lng != null) {
-      doc.workerLat = Number(req.body.lat);
-      doc.workerLng = Number(req.body.lng);
-      doc.workerLocationAt = new Date();
-    }
+    doc.arrivedAt = new Date();
+    applyWorkerCoords(doc, req.body);
     pushTimeline(doc, "arrived", "Worker arrived. Share the 4-digit OTP to start work.");
     await doc.save();
-    await notify(doc.customerId, { type: "success", text: "Worker arrived. Share your 4-digit OTP to start work.", requestId: doc._id });
+    emitLocationUpdate(doc);
+    await notify(doc.customerId, { type: "success", text: "Your Fixbuddy worker has arrived. Please provide the 4-digit OTP to start the service.", requestId: doc._id });
     const extras = await loadPeople(doc.toObject(), req);
     extras.revealOtp = false;
     res.json({ request: presentRequest(doc, extras) });
@@ -689,7 +745,7 @@ router.post(
       doc.jobOtpAttempts += 1;
       if (doc.jobOtpAttempts >= 5) doc.jobOtpLockedUntil = new Date(Date.now() + 10 * 60 * 1000);
       await doc.save();
-      throw httpError(400, "Invalid OTP. Ask the customer for the code on their screen.");
+      throw httpError(400, "Incorrect OTP. Please try again.");
     }
     doc.otpVerified = true;
     doc.otpVerifiedAt = new Date();
@@ -698,8 +754,10 @@ router.post(
     doc.jobOtpAttempts = 0;
     doc.jobOtpLockedUntil = null;
     pushTimeline(doc, "otp_verified", "Arrival verified with OTP");
+    doc.startedAt = new Date();
+    pushTimeline(doc, "in_progress", "Work started");
     await doc.save();
-    await notify(doc.customerId, { type: "success", text: "OTP verified. Work can start.", requestId: doc._id });
+    await notify(doc.customerId, { type: "success", text: "Worker has started the service.", requestId: doc._id });
     const extras = await loadPeople(doc.toObject(), req);
     res.json({ request: presentRequest(doc, extras) });
   })
@@ -711,19 +769,24 @@ router.patch(
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
     if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, "Not your job");
-    if (!BUSY_JOB_STATUSES.includes(doc.status)) throw httpError(400, "Location updates are only during an active job.");
-    const lat = Number(req.body.lat);
-    const lng = Number(req.body.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw httpError(400, "lat and lng are required");
-    doc.workerLat = lat;
-    doc.workerLng = lng;
+    if (!TRACKING_STATUSES.includes(doc.status)) throw httpError(400, "Location updates are only during an active job.");
+    const coords = coordsFromBody(req.body);
+    if (!coords) throw httpError(400, "lat and lng are required");
+    const persist = shouldPersistLocation(doc, coords.lat, coords.lng);
+    doc.workerLat = coords.lat;
+    doc.workerLng = coords.lng;
     doc.workerLocationAt = new Date();
-    await doc.save();
+    if (persist) {
+      await doc.save();
+      await User.updateOne(
+        { _id: req.userId },
+        { $set: { lat: coords.lat, lng: coords.lng, lastSeenAt: new Date(), "provider.lat": coords.lat, "provider.lng": coords.lng } }
+      );
+    }
     emitLocationUpdate(doc);
-    await User.updateOne({ _id: req.userId }, { $set: { lat, lng, lastSeenAt: new Date(), "provider.lat": lat, "provider.lng": lng } });
     const extras = await loadPeople(doc.toObject(), req);
     extras.revealOtp = false;
-    res.json({ request: presentRequest(doc, extras), distanceKm: km(doc.lat, doc.lng, lat, lng) });
+    res.json({ request: presentRequest(doc, extras), distanceKm: km(doc.lat, doc.lng, coords.lat, coords.lng) });
   })
 );
 
@@ -768,7 +831,7 @@ router.post(
     await User.updateOne({ _id: req.userId }, { $inc: { "provider.completedJobs": 1 } });
     await notify(doc.customerId, {
       type: "success",
-      text: "Work completed. Confirm simulated collection. DEVELOPMENT / SIMULATED — NO REAL MONEY.",
+      text: "Work completed? Confirm completion. DEVELOPMENT / SIMULATED — NO REAL MONEY.",
       requestId: doc._id,
     });
     const extras = await loadPeople(doc.toObject(), req);

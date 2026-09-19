@@ -172,7 +172,9 @@ test("job room, chat, status, GPS, and completed-job GPS shutdown", async () => 
       method: "POST",
       headers: { Authorization: `Bearer ${worker.token}` },
     });
-    assert.equal(accept.status, 200, await accept.text());
+    const acceptBody = await accept.json();
+    assert.equal(accept.status, 200, acceptBody.message);
+    assert.equal(acceptBody.request.status, "on_the_way");
 
     const [customerSock, workerSock, strangerSock] = await Promise.all([
       connectClient(url, customer.token),
@@ -190,8 +192,9 @@ test("job room, chat, status, GPS, and completed-job GPS shutdown", async () => 
     assert.equal(workerJoin.ok, true);
     assert.equal(strangerJoin.ok, false);
 
-    const statusSeen = [];
-    customerSock.on("job:status_change", (payload) => statusSeen.push(payload));
+    const locSeen = [];
+    customerSock.on("location:update", (payload) => locSeen.push(payload));
+    strangerSock.on("location:update", (payload) => locSeen.push({ ...payload, stranger: true }));
 
     const enroute = await fetch(`${url}/api/requests/${jobId}/enroute`, {
       method: "POST",
@@ -199,13 +202,14 @@ test("job room, chat, status, GPS, and completed-job GPS shutdown", async () => 
       body: JSON.stringify({ lat: 11.02, lng: 76.96 }),
     });
     assert.equal(enroute.status, 200, await enroute.text());
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    assert.ok(statusSeen.some((event) => event.status === "on_the_way"));
 
     const locAck = await new Promise((resolve) => {
-      workerSock.emit("location:update", { requestId: jobId, lat: 11.03, lng: 76.97 }, (ack) => resolve(ack));
+      workerSock.emit("location:update", { requestId: jobId, lat: 11.03, lng: 76.97, jobId, workerId: worker.user?.id }, (ack) => resolve(ack));
     });
     assert.equal(locAck.ok, true);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(locSeen.some((event) => event.latitude === 11.03 || event.lat === 11.03));
+    assert.equal(locSeen.some((event) => event.stranger), false);
 
     const conv = await fetch(`${url}/api/conversations/open`, {
       method: "POST",

@@ -8,15 +8,16 @@
  *  paid/closed: payment_collected, customer_completed, reviewed
  *  cancelled: cancelled, declined
  */
-export const ENGAGED_JOB_STATUSES = [
+export const TRACKING_JOB_STATUSES = [
   "accepted",
   "scheduled",
   "on_the_way",
   "arrived",
   "otp_verified",
   "in_progress",
-  "completed",
 ];
+
+export const ENGAGED_JOB_STATUSES = [...TRACKING_JOB_STATUSES, "completed"];
 
 export const PENDING_JOB_STATUSES = ["matching", "open", "requested"];
 export const PAID_JOB_STATUSES = ["payment_collected", "customer_completed", "reviewed"];
@@ -92,7 +93,7 @@ export function statusLabel(status?: string | null) {
     arrived: "Arrived",
     otp_verified: "OTP verified",
     in_progress: "Work started",
-    completed: "Work completed",
+    completed: "Awaiting confirmation",
     payment_collected: "Closed",
     customer_completed: "Closed",
     reviewed: "Closed",

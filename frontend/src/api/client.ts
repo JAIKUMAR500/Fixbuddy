@@ -243,7 +243,8 @@ export const RequestAPI = {
     api<{ request: JobRequest }>(`/requests/${id}${matches ? "?matches=true" : ""}`),
   assign: (id: string, providerId: string) =>
     api<{ request: JobRequest }>(`/requests/${id}/assign`, { method: "POST", body: JSON.stringify({ providerId }) }),
-  accept: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/accept`, { method: "POST" }),
+  accept: (id: string, body?: object) =>
+    api<{ request: JobRequest }>(`/requests/${id}/accept`, { method: "POST", body: JSON.stringify(body || {}) }),
   decline: (id: string) => api<{ request: JobRequest }>(`/requests/${id}/decline`, { method: "POST" }),
   schedule: (id: string, body: object) =>
     api<{ request: JobRequest }>(`/requests/${id}/schedule`, { method: "POST", body: JSON.stringify(body) }),
@@ -266,6 +267,21 @@ export const RequestAPI = {
     api<{ request: JobRequest }>(`/requests/${id}/verify-otp`, { method: "POST", body: JSON.stringify({ otp }) }),
   pingLocation: (id: string, lat: number, lng: number) =>
     api<{ request: JobRequest }>(`/requests/${id}/location`, { method: "PATCH", body: JSON.stringify({ lat, lng }) }),
+  tracking: (id: string) =>
+    api<{
+      requestId: string;
+      jobId: string;
+      status: string;
+      tracking: boolean;
+      workerId: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      timestamp: string | null;
+      customerLat: number | null;
+      customerLng: number | null;
+      distanceKm: number | null;
+      etaMinutes: number | null;
+    }>(`/requests/${id}/tracking`),
   collectPayment: (id: string) =>
     api<{ request: JobRequest }>(`/requests/${id}/collect-payment`, { method: "POST" }),
   customerComplete: (id: string) =>
@@ -280,7 +296,7 @@ export const RequestAPI = {
   delay: (id: string, reason: string, note = "") =>
     api<{ request: JobRequest }>(`/requests/${id}/delay`, { method: "POST", body: JSON.stringify({ reason, note }) }),
   priceBand: (q: string) =>
-    api<{ min: number | null; max: number | null; text: string; sample: number }>(`/requests/price-band${q}`),
+    api<{ min: number | null; max: number | null; typical?: number; text: string; sample: number }>(`/requests/price-band${q}`),
 };
 
 export const ChatAPI = {
@@ -704,6 +720,8 @@ export type JobRequest = {
   workerLat?: number | null;
   workerLng?: number | null;
   workerLocationAt?: string | null;
+  trackingActive?: boolean;
+  arrivedAt?: string | null;
   photos?: string[];
   voiceNote?: string;
   timing: string;

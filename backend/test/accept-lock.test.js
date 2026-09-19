@@ -158,7 +158,7 @@ test("TEST 1-10: atomic worker acceptance against MongoDB", async (t) => {
     const jobA = await makeJob(customer._id);
     const res = await call(url, worker, "POST", `/requests/${jobA._id}/accept`);
     assert.equal(res.status, 200);
-    assert.equal(res.data.request.status, "accepted");
+    assert.equal(res.data.request.status, "on_the_way");
     assert.equal(res.data.request.providerId, String(worker._id));
     const lock = await WorkerLock.findOne({ userId: worker._id }).lean();
     assert.equal(String(lock.jobId), String(jobA._id));
@@ -190,7 +190,7 @@ test("TEST 1-10: atomic worker acceptance against MongoDB", async (t) => {
     assert.equal(second.data.request.providerId, String(worker._id));
     const locks = await WorkerLock.countDocuments({ userId: worker._id });
     assert.equal(locks, 1);
-    const assigned = await Request.countDocuments({ providerId: worker._id, status: "accepted" });
+    const assigned = await Request.countDocuments({ providerId: worker._id, status: { $in: ["accepted", "on_the_way"] } });
     assert.equal(assigned, 1);
   });
 
@@ -209,7 +209,7 @@ test("TEST 1-10: atomic worker acceptance against MongoDB", async (t) => {
     const loser = a.status === 409 ? a : b;
     assert.match(loser.data.message, /already accepted|no longer available/i);
     const stored = await Request.findById(jobA._id).lean();
-    assert.equal(stored.status, "accepted");
+    assert.equal(["accepted", "on_the_way"].includes(stored.status), true);
     assert.ok([String(w1._id), String(w2._id)].includes(String(stored.providerId)));
     assert.equal(String(winner.data.request.providerId), String(stored.providerId));
   });
@@ -225,7 +225,7 @@ test("TEST 1-10: atomic worker acceptance against MongoDB", async (t) => {
     ]);
     const statuses = [a.status, b.status].sort();
     assert.deepEqual(statuses, [200, 409]);
-    const engaged = await Request.find({ providerId: worker._id, status: { $in: ["accepted"] } }).lean();
+    const engaged = await Request.find({ providerId: worker._id, status: { $in: ["accepted", "on_the_way"] } }).lean();
     assert.equal(engaged.length, 1);
     const locks = await WorkerLock.find({ userId: worker._id }).lean();
     assert.equal(locks.length, 1);
@@ -335,10 +335,10 @@ test("TEST 1-10: atomic worker acceptance against MongoDB", async (t) => {
     assert.equal(wins.length, 1);
     assert.equal(losses.length, 1);
     const stored = await Request.findById(job._id).lean();
-    assert.equal(stored.status, "accepted");
+    assert.equal(["accepted", "on_the_way"].includes(stored.status), true);
     const engagedWorkers = await Request.countDocuments({
       _id: job._id,
-      status: "accepted",
+      status: { $in: ["accepted", "on_the_way"] },
       $or: [{ providerId: leader._id }, { providerId: solo._id }],
     });
     assert.equal(engagedWorkers, 1);

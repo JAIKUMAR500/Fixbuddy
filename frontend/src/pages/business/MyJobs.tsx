@@ -6,6 +6,7 @@ import { useApp, useFetch } from "../../api/AppContext";
 import { RequestAPI, type JobRequest } from "../../api/client";
 import { canCancelJob, isEngagedStatus, statusLabel } from "../../api/jobLock";
 import { isSeeker } from "../../api/roles";
+import { formatRupees, jobAmountRupees } from "../../api/money";
 import CancelJobPanel from "../../components/CancelJobPanel";
 
 const TABS = ["All", "New", "Accepted", "Upcoming", "In Progress", "Completed", "Cancelled"] as const;
@@ -240,7 +241,7 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                   <span className="font-semibold text-slate-900 text-sm">
-                    {job.estimatedAmount ? `₹${job.estimatedAmount}` : "Quote pending"}
+                    {formatRupees(jobAmountRupees(job))}
                   </span>
                   <span className="text-xs text-brand font-medium inline-flex items-center gap-1">
                     {active ? "Continue job" : "View details"}

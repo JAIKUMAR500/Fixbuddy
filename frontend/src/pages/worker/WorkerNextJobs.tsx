@@ -68,7 +68,15 @@ export default function WorkerNextJobs({ navigate }: { navigate: (v: View) => vo
     setBusy(id);
     setError("");
     try {
-      await RequestAPI.accept(id);
+      const here = await new Promise<{ lat?: number; lng?: number }>((resolve) => {
+        if (!navigator.geolocation) return resolve({});
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve({}),
+          { timeout: 8000 }
+        );
+      });
+      await RequestAPI.accept(id, here);
       setActiveRequestId(id);
       await refreshCurrentJob();
       navigate("active-job");

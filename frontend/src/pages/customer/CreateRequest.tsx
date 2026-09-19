@@ -6,6 +6,7 @@ import { CategoryAPI, RequestAPI, mediaUrl, uploadImage } from "../../api/client
 import { useApp } from "../../api/AppContext";
 import { isBusiness } from "../../api/roles";
 import { capturePlace } from "../../api/geo";
+import { typicalPrice, guidePriceText } from "../../api/money";
 import VoiceRecorder from "../../components/VoiceRecorder";
 import CategoryIcon from "../../components/CategoryIcon";
 
@@ -64,8 +65,14 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
     if (!category) return;
     const q = `?category=${encodeURIComponent(category)}&city=${encodeURIComponent(city || user?.city || "")}&pinCode=${encodeURIComponent(pinCode)}`;
     void RequestAPI.priceBand(q)
-      .then((d) => setPriceBand(d.text || ""))
-      .catch(() => setPriceBand(""));
+      .then((d) => {
+        setPriceBand(d.text || guidePriceText(category));
+        setAmount((current) => current || String(d.typical || typicalPrice(category)));
+      })
+      .catch(() => {
+        setPriceBand(guidePriceText(category));
+        setAmount((current) => current || String(typicalPrice(category)));
+      });
   }, [category, city, pinCode, user?.city]);
 
   const scheduledAt =
@@ -108,9 +115,9 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
       lat,
       lng,
       landmark,
-      estimatedAmount: Number(amount || 0),
-      budgetMin: Number(amount || 0),
-      budgetMax: Number(amount || 0),
+      estimatedAmount: Number(amount || typicalPrice(category)),
+      budgetMin: Number(amount || typicalPrice(category)),
+      budgetMax: Number(amount || typicalPrice(category)),
       workersRequired: needTeam ? Math.max(2, workersRequired) : 1,
       scheduledAt,
       scheduledLabel,
@@ -150,7 +157,16 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
       if (place.area) setArea(place.area);
       if (place.city) setCity(place.city);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not read GPS. Type the address instead.");
+      if (user?.lat != null && user?.lng != null) {
+        setLat(user.lat);
+        setLng(user.lng);
+        if (!address && user.address) setAddress(user.address);
+        if (!area && user.area) setArea(user.area);
+        if (!city && user.city) setCity(user.city);
+        setError("Live GPS was unavailable, so we used your saved location. You can still edit the address.");
+      } else {
+        setError(e instanceof Error ? e.message : "Could not read GPS. Type the address instead.");
+      }
     } finally {
       setLocating(false);
     }

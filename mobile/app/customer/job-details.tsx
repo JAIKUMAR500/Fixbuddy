@@ -10,6 +10,7 @@ import { ApiError } from "../../services/api";
 import { useAuth } from "../../store/AuthContext";
 import { isEngagedStatus, isPendingStatus, statusLabel } from "../../utils/jobStatus";
 import type { JobRequest } from "../../types";
+import { formatRupees, jobAmountRupees } from "../../utils/money";
 
 export default function JobDetails() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -34,7 +35,7 @@ export default function JobDetails() {
         {job?.voiceNote ? <VoicePlayer url={job.voiceNote} /> : null}
         <Card>
           <Sub>{[job?.address, job?.area, job?.city].filter(Boolean).join(", ")}</Sub>
-          <Sub>₹{job?.estimatedAmount || job?.workerQuote || "—"}</Sub>
+          <Sub>{formatRupees(jobAmountRupees(job))}</Sub>
           <Sub>{job?.scheduledLabel || job?.timing}</Sub>
         </Card>
         <ErrorText>{error}</ErrorText>

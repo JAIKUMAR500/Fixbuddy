@@ -15,6 +15,22 @@ vi.mock("../../api/AppContext", () => ({
   }),
 }));
 
+vi.mock("../../api/realtime", () => ({
+  subscribeRealtime: () => () => {},
+  subscribeConnection: (cb: (state: string) => void) => {
+    cb("disconnected");
+    return () => {};
+  },
+  getRealtimeConnectionState: () => "disconnected",
+  publishWorkerLocation: () => false,
+  isRealtimeConnected: () => false,
+  joinRealtimeJob: () => {},
+}));
+
+vi.mock("../../api/useWorkerGps", () => ({
+  useWorkerGps: () => "idle",
+}));
+
 vi.mock("../../i18n/LangContext", () => ({
   useLang: () => ({ t: (key: string) => key }),
 }));
@@ -62,7 +78,7 @@ describe("ActiveJob OTP and payment states", () => {
     render(<ActiveJob navigate={() => {}} />);
     expect(await screen.findByPlaceholderText(/4-digit otp/i)).toBeInTheDocument();
     await userEvent.type(screen.getByPlaceholderText(/4-digit otp/i), "1234");
-    await userEvent.click(screen.getByRole("button", { name: /job.enterOtp/i }));
+    await userEvent.click(screen.getByRole("button", { name: /verify otp/i }));
     expect(verifyOtp).toHaveBeenCalledWith("job1", "1234");
   });
 
@@ -73,6 +89,27 @@ describe("ActiveJob OTP and payment states", () => {
     } as never);
     render(<ActiveJob navigate={() => {}} />);
     expect(await screen.findByText("4821")).toBeInTheDocument();
-    expect(screen.getByText(/share this otp/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/worker has arrived/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows live tracking for the customer after the worker accepts", async () => {
+    role = "customer";
+    vi.mocked(RequestAPI.currentJob).mockResolvedValue({
+      request: job("on_the_way", {
+        lat: 11.0168,
+        lng: 76.9558,
+        workerLat: 11.02,
+        workerLng: 76.96,
+        workerLocationAt: new Date().toISOString(),
+        etaMinutes: 8,
+        distanceKm: 1.2,
+        provider: { name: "Ravi", rating: 4.9, avatar: "", verified: true, phone: "999" } as JobRequest["provider"],
+      }),
+    } as never);
+    render(<ActiveJob navigate={() => {}} />);
+    expect(await screen.findByText(/track your worker/i)).toBeInTheDocument();
+    expect(screen.getByTestId("live-track-map")).toBeInTheDocument();
+    expect(screen.getByText(/worker is on the way/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/8 min/).length).toBeGreaterThan(0);
   });
 });

@@ -3,15 +3,16 @@ import { ArrowLeft, MapPin, Clock, Phone, MessageSquare, CheckCircle, Play, Flag
 import { View } from "../../types";
 import { Button, Card, RatingStars, Avatar, EmptyState, FetchBanner } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
-import TrackMap from "../../components/TrackMap";
+import LiveTrackMap from "../../components/LiveTrackMap";
 import CancelJobPanel from "../../components/CancelJobPanel";
 import { useApp, useFetch } from "../../api/AppContext";
 import { RequestAPI, ChatAPI, SafetyAPI, mediaUrl, type JobRequest } from "../../api/client";
 import { isBusiness } from "../../api/roles";
 import { startCall, jobAllowsCall } from "../../api/phone";
-import { openMapsNav } from "../../api/geo";
 import { canCancelJob, jobError, statusLabel } from "../../api/jobLock";
 import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
+import { subscribeRealtime } from "../../api/realtime";
+import { jobAmountRupees, formatRupees } from "../../api/money";
 
 const TRACKING = ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress"];
 
@@ -34,7 +35,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
   const waitingForAccept = request && ["open", "requested", "matching"].includes(request.status) && !request.providerId;
   const backView = user?.role === "customer" ? "my-requests" : "my-jobs";
   const callPhone = worker ? request?.customer?.phone : provider?.phone;
-  const amount = request?.workerQuote || request?.estimatedAmount || 0;
+  const amount = jobAmountRupees(request);
 
 
   React.useEffect(() => {
@@ -68,6 +69,18 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
 
   const [openingChat, setOpeningChat] = React.useState(false);
   const [chatError, setChatError] = React.useState("");
+  const [liveWorker, setLiveWorker] = React.useState<{ lat: number; lng: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!request?.id) return;
+    return subscribeRealtime("location:update", (payload) => {
+      if (String(payload.requestId || payload.jobId || "") !== request.id) return;
+      const lat = Number(payload.lat ?? payload.latitude);
+      const lng = Number(payload.lng ?? payload.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      setLiveWorker({ lat, lng });
+    });
+  }, [request?.id]);
 
   const openChat = async () => {
     if (!request?.id || !provider) return;
@@ -203,27 +216,32 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
               <JobProgress status={request.status} />
             </Card>
 
-            <Card padding="none" className="overflow-hidden">
-              <TrackMap
-                customer={{ lat: request.lat, lng: request.lng }}
-                worker={{ lat: request.workerLat, lng: request.workerLng }}
-                navigateTo={
-                  worker
-                    ? { lat: request.lat, lng: request.lng }
-                    : { lat: request.workerLat ?? request.lat, lng: request.workerLng ?? request.lng }
-                }
-                origin={
-                  worker
-                    ? { lat: request.workerLat, lng: request.workerLng }
-                    : { lat: request.lat, lng: request.lng }
-                }
-                tapHint={worker ? "Customer location for this job" : "Worker location for this job"}
-              />
-              <div className="px-4 py-3 flex flex-wrap gap-3 text-xs text-slate-600">
-                {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
-                {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
-              </div>
-            </Card>
+            {TRACKING.includes(request.status) && (
+              <Card padding="none" className="overflow-hidden">
+                <LiveTrackMap
+                  customer={{ lat: request.lat, lng: request.lng }}
+                  worker={
+                    worker
+                      ? null
+                      : {
+                          lat: liveWorker?.lat ?? request.workerLat,
+                          lng: liveWorker?.lng ?? request.workerLng,
+                        }
+                  }
+                  workerRole={worker}
+                  waitingForWorker={!worker && liveWorker == null && request.workerLat == null}
+                  tapHint={
+                    worker
+                      ? "Customer house for this job. Stay on this screen."
+                      : "Watch the worker live in FixBuddy. No need to open another map."
+                  }
+                />
+                <div className="px-4 py-3 flex flex-wrap gap-3 text-xs text-slate-600">
+                  {request.distanceKm != null && <span className="font-semibold text-slate-800">{request.distanceKm} km away</span>}
+                  {request.etaMinutes != null && <span>ETA {request.etaMinutes} min</span>}
+                </div>
+              </Card>
+            )}
 
             {!!request.crewMembers?.length && (
               <Card padding="md">
@@ -299,7 +317,6 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                       void run(async () => {
                         const here = await coords();
                         await RequestAPI.enroute(request.id, here);
-                        if (request.lat != null && request.lng != null) openMapsNav({ lat: request.lat, lng: request.lng }, here);
                       })
                     }
                   >
@@ -340,7 +357,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                 {action === "collect" && (
                   <div className="space-y-3">
                     <p className="text-center text-sm text-slate-500">Service amount</p>
-                    <p className="text-center text-4xl font-black font-display text-slate-900">₹{amount}</p>
+                    <p className="text-center text-4xl font-black font-display text-slate-900">{formatRupees(amount)}</p>
                     <Button size="lg" fullWidth loading={!!acting} onClick={() => void run(() => RequestAPI.collectPayment(request.id))}>
                       <Wallet className="w-5 h-5" /> Record simulated collection
                     </Button>
@@ -363,7 +380,7 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
               <Card padding="lg" className="text-center space-y-2">
                 <SimulatedMoneyBanner />
                 <p className="text-sm text-slate-500">Simulated job value</p>
-                <p className="text-4xl font-black font-display">₹{amount}</p>
+                <p className="text-4xl font-black font-display">{formatRupees(amount)}</p>
                 <p className="text-sm text-slate-500">No real money moves. Confirm to record the simulated settlement.</p>
                 <Button size="lg" fullWidth loading={!!acting} onClick={() => void run(() => RequestAPI.customerComplete(request.id))}>
                   <CheckCircle className="w-5 h-5" /> Confirm completion (simulated)

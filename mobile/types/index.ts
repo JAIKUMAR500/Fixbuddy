@@ -40,6 +40,9 @@ export type JobRequest = {
   voiceNote?: string;
   lat?: number | null;
   lng?: number | null;
+  workerLat?: number | null;
+  workerLng?: number | null;
+  workerLocationAt?: string | null;
   distance?: string | number;
   distanceKm?: number | null;
   etaMinutes?: number | null;

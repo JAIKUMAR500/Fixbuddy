@@ -5,6 +5,7 @@ import { Tabs, StatusBadge, EmptyState, Card, FetchBanner } from "../../componen
 import { useApp, useFetch } from "../../api/AppContext";
 import { RequestAPI, type JobRequest } from "../../api/client";
 import { canCancelJob, isEngagedStatus } from "../../api/jobLock";
+import { formatRupees, jobAmountRupees } from "../../api/money";
 import CancelJobPanel from "../../components/CancelJobPanel";
 
 export default function MyRequests({ navigate }: { navigate: (v: View) => void }) {
@@ -97,7 +98,7 @@ export default function MyRequests({ navigate }: { navigate: (v: View) => void }
                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{r.area || r.city}</span>
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-sky-50">
-                <span className="font-semibold text-sky-700 text-sm">{r.estimatedAmount ? `₹${r.estimatedAmount}` : "Quote pending"}</span>
+                <span className="font-semibold text-sky-700 text-sm">{formatRupees(jobAmountRupees(r))}</span>
                 <span className="text-xs text-sky-600 font-medium flex items-center gap-1">
                   View Details <ChevronRight className="w-3.5 h-3.5" />
                 </span>

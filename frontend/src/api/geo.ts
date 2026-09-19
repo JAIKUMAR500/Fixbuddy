@@ -20,17 +20,45 @@ export async function reverseGeocode(lat: number, lng: number): Promise<Omit<Geo
   };
 }
 
-export function readGps(): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Location is not available in this browser"));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(resolve, () => reject(new Error("Could not read GPS. Type the address instead.")), {
-      enableHighAccuracy: true,
-      timeout: 12000,
-    });
+type GeoErrorLike = { code?: number; message?: string } | null | undefined;
+
+export function gpsErrorMessage(err?: GeoErrorLike) {
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return "This browser only shares location on localhost or HTTPS. Open http://localhost:5173 or type the address.";
+  }
+  const code = Number(err?.code);
+  if (code === 1) return "Location permission was blocked. Allow location for this site, or type the address.";
+  if (code === 3) return "GPS timed out. Try again near a window, or type the address.";
+  if (code === 2) return "GPS is unavailable on this device. Type the address instead.";
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return "This device cannot share location. Type the service address instead.";
+  }
+  return "Could not read GPS. Type the address instead.";
+}
+
+function getPosition(options: PositionOptions) {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
   });
+}
+
+export async function readGps(): Promise<GeolocationPosition> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    throw new Error(gpsErrorMessage());
+  }
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    throw new Error(gpsErrorMessage());
+  }
+  try {
+    // Network/Wi-Fi location first — desktops often have no GPS hardware.
+    return await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 60_000 });
+  } catch (first) {
+    try {
+      return await getPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    } catch (second) {
+      throw new Error(gpsErrorMessage((second as GeoErrorLike) || (first as GeoErrorLike)));
+    }
+  }
 }
 
 export function hasCoords(
@@ -57,6 +85,46 @@ export function openMapsNav(
   const url = mapsNavUrl(dest, origin);
   const opened = window.open(url, "_blank", "noopener,noreferrer");
   if (!opened) window.location.assign(url);
+}
+
+export type LatLng = { lat: number; lng: number };
+
+export function metersBetween(a: LatLng, b: LatLng) {
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+export function formatDistance(meters: number) {
+  if (!Number.isFinite(meters) || meters < 0) return "";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+const routeCache = new Map<string, LatLng[]>();
+
+/** Driving path between two live points. Falls back to a straight line if routing is down. */
+export async function fetchDrivingRoute(from: LatLng, to: LatLng): Promise<LatLng[]> {
+  if (metersBetween(from, to) < 40) return [];
+  const key = `${from.lat.toFixed(4)},${from.lng.toFixed(4)}>${to.lat.toFixed(4)},${to.lng.toFixed(4)}`;
+  const cached = routeCache.get(key);
+  if (cached) return cached;
+  const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) return [from, to];
+  const data = (await res.json()) as { routes?: { geometry?: { coordinates?: [number, number][] } }[] };
+  const coords = data.routes?.[0]?.geometry?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return [from, to];
+  const path = coords.map(([lng, lat]) => ({ lat, lng }));
+  routeCache.set(key, path);
+  if (routeCache.size > 40) {
+    const first = routeCache.keys().next().value;
+    if (first) routeCache.delete(first);
+  }
+  return path;
 }
 
 export async function capturePlace(): Promise<GeoPlace> {

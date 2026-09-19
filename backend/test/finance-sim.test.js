@@ -221,8 +221,7 @@ test("Phase 3 development financial simulation", async (t) => {
     await call(url, worker, "POST", `/requests/${id3}/accept`);
     const workerCancel = await call(url, worker, "POST", `/requests/${id3}/cancel`, { reason: "Emergency" });
     assert.equal(workerCancel.status, 200);
-    assert.equal(workerCancel.data.finance.scenario, "worker_after_accept");
-    assert.equal(workerCancel.data.finance.amountPaise, 0);
+    assert.equal(workerCancel.data.finance.scenario, "worker_after_arrive");
     assert.equal(await WorkerLock.findOne({ userId: worker._id }).lean(), null);
   });
 

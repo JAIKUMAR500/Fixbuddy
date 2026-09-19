@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Flag,
   MessageSquare,
@@ -12,7 +12,7 @@ import {
 import { View } from "../../types";
 import { Button, Card } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
-import TrackMap from "../../components/TrackMap";
+import JobTrackingPanel, { isTrackingStatus } from "../../components/JobTrackingPanel";
 import CancelJobPanel from "../../components/CancelJobPanel";
 import { ChatAPI, RequestAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
 import { useApp } from "../../api/AppContext";
@@ -21,8 +21,15 @@ import { Chip } from "@mui/material";
 import { canCancelJob, jobError, isEngagedStatus, statusLabel } from "../../api/jobLock";
 import { SimulatedMoneyBanner } from "../../components/SimulatedMoney";
 import { startCall } from "../../api/phone";
-import { mapsNavUrl, openMapsNav } from "../../api/geo";
+import { jobAmountRupees, formatRupees } from "../../api/money";
 import { useLang } from "../../i18n/LangContext";
+import { useWorkerGps } from "../../api/useWorkerGps";
+import {
+  getRealtimeConnectionState,
+  subscribeConnection,
+  subscribeRealtime,
+  type RealtimeConnectionState,
+} from "../../api/realtime";
 
 function cacheJob(job: JobRequest) {
   try {
@@ -66,6 +73,9 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   const [otp, setOtp] = useState("");
   const [watchUrl, setWatchUrl] = useState("");
   const [photoStage, setPhotoStage] = useState<"before" | "during" | "after">("before");
+  const [liveWorker, setLiveWorker] = useState<{ lat: number; lng: number; at: number } | null>(null);
+  const [socketState, setSocketState] = useState<RealtimeConnectionState>(getRealtimeConnectionState());
+  const gpsState = useWorkerGps(job?.id, job?.status, worker);
 
   const load = useCallback(async () => {
     try {
@@ -108,17 +118,37 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   }, []);
 
   useEffect(() => {
-    if (!worker || !job?.id || !["accepted", "on_the_way", "arrived", "otp_verified", "in_progress"].includes(job.status)) return;
-    if (!navigator.geolocation) return;
-    const last = { t: 0 };
-    const watch = navigator.geolocation.watchPosition((pos) => {
-      const now = Date.now();
-      if (now - last.t < 15000) return;
-      last.t = now;
-      void RequestAPI.pingLocation(job.id, pos.coords.latitude, pos.coords.longitude).catch(() => { });
+    const offLoc = subscribeRealtime("location:update", (payload) => {
+      if (!job?.id || String(payload.requestId || payload.jobId || "") !== job.id) return;
+      const lat = Number(payload.lat ?? payload.latitude);
+      const lng = Number(payload.lng ?? payload.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const at = Number(payload.timestamp ?? payload.at) || Date.now();
+      setLiveWorker({ lat, lng, at });
+      setJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              workerLat: lat,
+              workerLng: lng,
+              workerLocationAt: new Date(at).toISOString(),
+              distanceKm: typeof payload.distanceKm === "number" ? payload.distanceKm : prev.distanceKm,
+              etaMinutes: typeof payload.etaMinutes === "number" ? payload.etaMinutes : prev.etaMinutes,
+            }
+          : prev
+      );
     });
-    return () => navigator.geolocation.clearWatch(watch);
-  }, [worker, job?.id, job?.status]);
+    const offStatus = subscribeRealtime("job:status_change", (payload) => {
+      if (!job?.id || String(payload.requestId || payload.jobId || "") !== job.id) return;
+      void load();
+    });
+    const offConn = subscribeConnection(setSocketState);
+    return () => {
+      offLoc();
+      offStatus();
+      offConn();
+    };
+  }, [job?.id, load]);
 
   const loc = async () => {
     try {
@@ -149,14 +179,6 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
     }
   };
 
-  const mapsUrl = useMemo(() => {
-    if (job?.lat == null || job?.lng == null) return "";
-    return mapsNavUrl(
-      { lat: job.lat, lng: job.lng },
-      job.workerLat != null && job.workerLng != null ? { lat: job.workerLat, lng: job.workerLng } : null
-    );
-  }, [job?.lat, job?.lng, job?.workerLat, job?.workerLng]);
-
   if (!job) {
     const nextView = worker ? "worker-next-jobs" : "create-request";
     const historyView = worker ? "my-jobs" : "my-requests";
@@ -179,7 +201,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   }
 
   const action = jobPrimaryAction(job.status);
-  const amount = job.workerQuote || job.estimatedAmount || 0;
+  const amount = jobAmountRupees(job);
   const problemText =
     worker && job.translatedDescription && job.translatedDescription !== job.description
       ? job.translatedDescription
@@ -197,8 +219,12 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t("job.activeJob")}</p>
-          <h1 className="font-display text-2xl font-bold text-slate-900">{job.category}</h1>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            {worker ? t("job.activeJob") : isTrackingStatus(job.status) ? "Track Your Worker" : t("job.activeJob")}
+          </p>
+          <h1 className="font-display text-2xl font-bold text-slate-900">
+            {worker ? "Customer Request" : job.category}
+          </h1>
           <p className="text-xs text-slate-500 mt-1">
             Job ID {job.code}
             {job.etaMinutes ? ` · ETA ${job.etaMinutes} min` : ""}
@@ -230,63 +256,59 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
       <JobProgress status={job.status} />
 
-      <TrackMap
-        customer={{ lat: job.lat, lng: job.lng }}
-        worker={{ lat: job.workerLat, lng: job.workerLng }}
-        navigateTo={
-          worker
-            ? { lat: job.lat, lng: job.lng }
-            : { lat: job.workerLat ?? job.lat, lng: job.workerLng ?? job.lng }
-        }
-        origin={
-          worker
-            ? { lat: job.workerLat, lng: job.workerLng }
-            : { lat: job.lat, lng: job.lng }
-        }
-        tapHint={worker ? "Customer location for this job" : "Worker location for this job"}
+      <JobTrackingPanel
+        job={job}
+        workerRole={worker}
+        gpsState={gpsState}
+        socketState={socketState}
+        workerLat={liveWorker?.lat ?? job.workerLat}
+        workerLng={liveWorker?.lng ?? job.workerLng}
+        workerLocationAt={liveWorker?.at ?? job.workerLocationAt}
       />
 
-      <Card padding="md" className="space-y-2">
-        {worker ? (
-          <>
-            <p className="text-xs text-slate-500">Customer</p>
-            <p className="font-semibold">{job.customer?.name || "Customer"}</p>
-            <p className="text-sm text-slate-600">
-              {job.area || job.city}
-              {job.distanceKm != null ? ` · ${job.distanceKm} km` : ""}
-            </p>
-            {(job.tower || job.flat || job.gateNote) && (
-              <p className="text-sm bg-slate-50 rounded-xl px-3 py-2">
-                {job.tower ? `Tower ${job.tower}` : ""} {job.flat ? `Flat ${job.flat}` : ""}
-                {job.visitorName ? ` · Visitor: ${job.visitorName}` : ""}
-                {job.gateNote ? ` · ${job.gateNote}` : ""}
+      {!isTrackingStatus(job.status) && (
+        <Card padding="md" className="space-y-2">
+          {worker ? (
+            <>
+              <p className="text-xs text-slate-500">Customer</p>
+              <p className="font-semibold">{job.customer?.name || "Customer"}</p>
+              <p className="text-sm text-slate-600">
+                {job.area || job.city}
+                {job.distanceKm != null ? ` · ${job.distanceKm} km` : ""}
               </p>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="text-xs text-slate-500">Worker</p>
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100">
-                {job.provider?.avatar ? (
-                  <img src={mediaUrl(job.provider.avatar)} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center font-bold">
-                    {(job.provider?.name || "W").slice(0, 1)}
-                  </div>
-                )}
-              </div>
-              <div>
-                <p className="font-semibold">{job.provider?.name || "Worker"}</p>
-                <p className="text-xs text-slate-500">
-                  ⭐ {job.provider?.rating || 0}
-                  {job.provider?.verified ? " · Verified" : ""}
+              {(job.tower || job.flat || job.gateNote) && (
+                <p className="text-sm bg-slate-50 rounded-xl px-3 py-2">
+                  {job.tower ? `Tower ${job.tower}` : ""} {job.flat ? `Flat ${job.flat}` : ""}
+                  {job.visitorName ? ` · Visitor: ${job.visitorName}` : ""}
+                  {job.gateNote ? ` · ${job.gateNote}` : ""}
                 </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500">Worker</p>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100">
+                  {job.provider?.avatar ? (
+                    <img src={mediaUrl(job.provider.avatar)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-bold">
+                      {(job.provider?.name || "W").slice(0, 1)}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold">{job.provider?.name || "Worker"}</p>
+                  <p className="text-xs text-slate-500">
+                    ⭐ {job.provider?.rating || 0}
+                    {job.provider?.verified ? " · Verified" : ""}
+                  </p>
+                </div>
               </div>
-            </div>
-          </>
-        )}
-      </Card>
+            </>
+          )}
+        </Card>
+      )}
 
       <Card padding="md" className="space-y-2">
         <p className="text-xs text-slate-500">Problem</p>
@@ -302,23 +324,26 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
             ))}
           </div>
         )}
-        <p className="text-sm font-semibold">₹{amount || "—"}</p>
+        <p className="text-sm font-semibold">{formatRupees(amount)}</p>
       </Card>
 
       {!worker && job.status === "arrived" && job.jobOtp && (
         <Card padding="md" className="text-center">
-          <p className="text-xs font-semibold text-slate-500">Share this OTP with the worker</p>
+          <p className="text-sm font-semibold text-slate-800">Your Fixbuddy worker has arrived.</p>
+          <p className="text-xs font-semibold text-slate-500 mt-1">Please provide the 4-digit OTP to start the service.</p>
           <p className="text-5xl font-black font-display tracking-[0.3em] my-2">{job.jobOtp}</p>
         </Card>
       )}
 
       {worker && action === "otp" && (
         <div className="space-y-2">
+          <p className="text-center text-sm font-semibold text-slate-600">Enter Customer OTP</p>
           <input
             value={otp}
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
             inputMode="numeric"
             placeholder="Enter 4-digit OTP"
+            aria-label="Enter 4-digit OTP"
             className="w-full min-h-14 rounded-2xl border border-slate-200 text-center text-2xl tracking-[0.4em] font-bold"
           />
           <Button
@@ -326,7 +351,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
             disabled={otp.length !== 4 || !!busy}
             onClick={() => void run("otp", () => RequestAPI.verifyOtp(job.id, otp))}
           >
-            {t("job.enterOtp")}
+            Verify OTP
           </Button>
         </div>
       )}
@@ -339,7 +364,6 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
             void run("enroute", async () => {
               const here = await loc();
               await RequestAPI.enroute(job.id, here);
-              if (job.lat != null && job.lng != null) openMapsNav({ lat: job.lat, lng: job.lng }, here);
             })
           }
         >
@@ -348,18 +372,25 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       )}
       {worker && action === "arrive" && (
         <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("arrive", async () => RequestAPI.arrive(job.id, await loc()))}>
-          {t("job.arrived")}
+          Mark as Arrived
         </Button>
       )}
-      {worker && action === "start" && (
-        <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("start", () => RequestAPI.start(job.id))}>
-          <Play className="w-5 h-5" /> {t("job.start")}
-        </Button>
-      )}
-      {worker && action === "complete" && (
-        <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.complete(job.id))}>
-          <Flag className="w-5 h-5" /> {t("job.complete")}
-        </Button>
+      {worker && (action === "start" || job.status === "in_progress") && (
+        <Card padding="md" className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Work in Progress</p>
+          <p className="text-sm">Customer: {job.customer?.name || "Customer"}</p>
+          <p className="text-sm">Service: {job.category}</p>
+          <p className="text-sm font-semibold text-emerald-700">● Work Started</p>
+          {action === "complete" || job.status === "in_progress" ? (
+            <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.complete(job.id))}>
+              <Flag className="w-5 h-5" /> Complete Work
+            </Button>
+          ) : (
+            <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("start", () => RequestAPI.start(job.id))}>
+              <Play className="w-5 h-5" /> {t("job.start")}
+            </Button>
+          )}
+        </Card>
       )}
       {worker && action === "collect" && (
         <div className="space-y-2">
@@ -372,8 +403,9 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       {!worker && job.status === "completed" && job.paymentStatus !== "collected" && (
         <div className="space-y-2">
           <SimulatedMoneyBanner />
+          <p className="text-center font-semibold">Work completed?</p>
           <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.customerComplete(job.id))}>
-            Confirm completion (simulated)
+            Confirm Completion
           </Button>
         </div>
       )}
@@ -386,12 +418,6 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           busy={busy === "cancel"}
           onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}
         />
-      )}
-
-      {worker && mapsUrl && ["accepted", "scheduled", "on_the_way"].includes(job.status) && (
-        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full min-h-12 rounded-2xl border border-slate-200 font-semibold">
-          <Navigation className="w-4 h-4" /> Open Google Maps
-        </a>
       )}
 
       {worker && ["in_progress", "arrived", "otp_verified", "completed"].includes(job.status) && (
