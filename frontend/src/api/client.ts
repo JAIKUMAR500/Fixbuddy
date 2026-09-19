@@ -23,14 +23,61 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
+type ApiOpts = RequestInit & { skipAuthRefresh?: boolean };
+
+function keepBearerToken() {
+  return Capacitor.isNativePlatform() || Boolean(String(import.meta.env.VITE_API_URL || "").trim());
+}
+
+export function persistSession(token?: string, refreshToken?: string) {
+  localStorage.setItem("fb_session", "1");
+  if (keepBearerToken() && token) localStorage.setItem("fb_token", token);
+  else if (!keepBearerToken()) localStorage.removeItem("fb_token");
+  if (keepBearerToken() && refreshToken) localStorage.setItem("fb_refresh", refreshToken);
+  else localStorage.removeItem("fb_refresh");
+}
+
+export function clearSession() {
+  localStorage.removeItem("fb_token");
+  localStorage.removeItem("fb_refresh");
+  localStorage.removeItem("fb_session");
+}
+
+export function hasSessionHint() {
+  return Boolean(localStorage.getItem("fb_token") || localStorage.getItem("fb_session"));
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshSession() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const refreshToken = localStorage.getItem("fb_refresh") || "";
+      const data = await api<{ token?: string; refreshToken?: string }>("/auth/refresh", {
+        method: "POST",
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+        skipAuthRefresh: true,
+      });
+      persistSession(data.token, data.refreshToken);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+export async function api<T>(path: string, opts: ApiOpts = {}): Promise<T> {
   const token = localStorage.getItem("fb_token");
   const headers: Record<string, string> = {
     ...(opts.body ? { "Content-Type": "application/json" } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...((opts.headers as Record<string, string>) || {}),
   };
-  const res = await fetch(`${BASE}${path}`, { ...opts, headers });
+  const res = await fetch(`${BASE}${path}`, { ...opts, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const skipExpire =
@@ -39,9 +86,12 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
       path.startsWith("/auth/google") ||
       path.startsWith("/auth/forgot") ||
       path.startsWith("/auth/reset") ||
-      path.startsWith("/auth/logout");
-    if (res.status === 401 && token && !skipExpire) {
-      localStorage.removeItem("fb_token");
+      path.startsWith("/auth/logout") ||
+      path.startsWith("/auth/refresh");
+    if (res.status === 401 && !skipExpire && !opts.skipAuthRefresh && hasSessionHint()) {
+      const recovered = await tryRefreshSession();
+      if (recovered) return api<T>(path, { ...opts, skipAuthRefresh: true });
+      clearSession();
       window.dispatchEvent(new Event("fixbuddy:unauthorized"));
     }
     throw new ApiError(res.status, data.message || "Request failed");
@@ -51,17 +101,19 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
 export const AuthAPI = {
   login: (email: string, password: string, role?: string) =>
-    api<{ token: string; user: AppUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, role }) }),
+    api<{ token: string; refreshToken?: string; user: AppUser }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, role }) }),
   signup: (body: object) =>
-    api<{ token: string; user: AppUser }>("/auth/signup", { method: "POST", body: JSON.stringify(body) }),
+    api<{ token: string; refreshToken?: string; user: AppUser }>("/auth/signup", { method: "POST", body: JSON.stringify(body) }),
   logout: () => api<void>("/auth/logout", { method: "POST" }),
   logoutAll: () => api<void>("/auth/logout-all", { method: "POST" }),
   google: (credential: string, role?: string) =>
-    api<{ token: string; user: AppUser }>("/auth/google", { method: "POST", body: JSON.stringify({ credential, role }) }),
+    api<{ token: string; refreshToken?: string; user: AppUser }>("/auth/google", { method: "POST", body: JSON.stringify({ credential, role }) }),
   forgot: (email: string, role?: string) =>
     api<{ ok: boolean; message: string; otp?: string; queued?: boolean }>("/auth/forgot", { method: "POST", body: JSON.stringify({ email, role }) }),
   reset: (body: { email: string; otp: string; password: string; role?: string }) =>
-    api<{ token: string; user: AppUser }>("/auth/reset", { method: "POST", body: JSON.stringify(body) }),
+    api<{ token: string; refreshToken?: string; user: AppUser }>("/auth/reset", { method: "POST", body: JSON.stringify(body) }),
+  refresh: () =>
+    api<{ token: string; refreshToken?: string; user: AppUser }>("/auth/refresh", { method: "POST", body: JSON.stringify({}), skipAuthRefresh: true }),
   me: () => api<{ user: AppUser }>("/auth/me"),
   updateMe: (body: object) => api<{ user: AppUser }>("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
 };

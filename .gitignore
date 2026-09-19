@@ -6,6 +6,9 @@ build/
 .vite/
 *.tsbuildinfo
 *.log
+test-results/
+playwright-report/
+blob-report/
 .env
 .env.*
 !.env.example

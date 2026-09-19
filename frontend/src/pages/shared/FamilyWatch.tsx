@@ -4,9 +4,13 @@ import { Button, Card } from "../../components/ui";
 import TrackMap from "../../components/TrackMap";
 import { PublicAPI, mediaUrl } from "../../api/client";
 import { statusLabel } from "../../api/jobLock";
+import { watchTokenFromPath } from "../../api/routes";
 
 export default function FamilyWatch({ navigate }: { navigate: (v: View) => void }) {
-  const token = new URLSearchParams(window.location.search).get("watch") || "";
+  const token =
+    watchTokenFromPath(window.location.pathname) ||
+    new URLSearchParams(window.location.search).get("watch") ||
+    "";
   const [data, setData] = useState<Awaited<ReturnType<typeof PublicAPI.watch>>["watch"] | null>(null);
   const [error, setError] = useState("");
 

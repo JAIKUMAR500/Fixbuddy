@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
-import { env } from "../config/env.js";
+import { rateLimit, clientKey } from "../middleware/rateLimit.js";
+import { verifySignature } from "../utils/fileSignature.js";
+import { getStorage, UPLOAD_LIMITS } from "../services/storage/index.js";
+import { resolvedUploadDir } from "../services/storage/LocalDiskStorage.js";
 
 const router = Router();
-const uploadDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../uploads");
-const resolvedUploadDir = path.resolve(uploadDir);
 
 const ALLOWED_IMAGE = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const ALLOWED_AUDIO = new Set([
@@ -26,26 +26,13 @@ const ALLOWED_AUDIO = new Set([
 const BLOCKED_EXT = new Set(["svg", "html", "htm", "js", "mjs", "cjs", "wasm", "exe", "sh", "php", "xml", "svgz"]);
 const SAFE_NAME = /^[a-zA-Z0-9._-]+$/;
 
-function ensureDir() {
-  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-function publicUrl(req, name) {
-  let base = String(env.publicUrl || "").replace(/\/$/, "");
-  if (!base) {
-    const proto = String(req.get("x-forwarded-proto") || req.protocol || "https")
-      .split(",")[0]
-      .trim();
-    const host = String(req.get("x-forwarded-host") || req.get("host") || "localhost:4000")
-      .split(",")[0]
-      .trim();
-    base = `${proto}://${host}`;
-  }
-  if (base.startsWith("http://") && !/localhost|127\.0\.0\.1/i.test(base)) {
-    base = `https://${base.slice(7)}`;
-  }
-  return `${base}/api/uploads/${name}`;
-}
+/** 20 uploads per 15 minutes per account, falling back to IP when anonymous. */
+const uploadLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  key: (req) => `upload:${req.userId || clientKey(req)}`,
+  message: "Too many uploads. Try again in a few minutes.",
+});
 
 function parseDataUrl(dataUrl) {
   const match = String(dataUrl || "")
@@ -73,43 +60,57 @@ function isAllowedRemoteUrl(value) {
   }
 }
 
+/**
+ * Validates a data URL and returns the stored object descriptor.
+ * Exported so tests can exercise validation without HTTP.
+ */
+export function validateUpload({ dataUrl, filename }) {
+  if (!dataUrl || typeof dataUrl !== "string") throw httpError(400, "File data or image URL is required");
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) throw httpError(400, "Invalid file. Use JPG, PNG, WebP, GIF, or a voice recording.");
+  const { mime, buf } = parsed;
+  if (mime.includes("svg") || mime.includes("html") || mime.includes("xml")) {
+    throw httpError(400, "This file type is not allowed.");
+  }
+  const isAudio = mime.startsWith("audio/");
+  if (isAudio && !ALLOWED_AUDIO.has(mime)) throw httpError(400, "Unsupported audio type.");
+  if (!isAudio && !ALLOWED_IMAGE.has(mime)) throw httpError(400, "Use JPG, PNG, WebP, or GIF.");
+  if (mime.includes("heic") || mime.includes("heif")) {
+    throw httpError(400, "iPhone HEIC photos are not supported. Export as JPG, then upload.");
+  }
+  const ext = extFor(mime, isAudio);
+  if (BLOCKED_EXT.has(ext)) throw httpError(400, "This file type is not allowed.");
+  const max = isAudio ? UPLOAD_LIMITS.audioBytes : UPLOAD_LIMITS.imageBytes;
+  if (buf.length > max) throw httpError(400, isAudio ? "Voice note must be under 8 MB" : "Image must be under 5 MB");
+
+  const signature = verifySignature(mime, buf);
+  if (!signature.ok) throw httpError(400, signature.reason);
+
+  const safe = String(filename || (isAudio ? "voice" : "photo"))
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[._-]{2,}/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 40);
+  const name = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safe || (isAudio ? "voice" : "photo")}.${ext}`;
+  return { name, buf, mime, kind: isAudio ? "voice" : "image" };
+}
+
 router.post(
   "/",
+  uploadLimit,
   asyncHandler(async (req, res) => {
     const { dataUrl, filename, url } = req.body || {};
     if (url && typeof url === "string" && isAllowedRemoteUrl(url)) {
       return res.status(201).json({ url: url.trim(), kind: "image" });
     }
-    if (!dataUrl || typeof dataUrl !== "string") throw httpError(400, "File data or image URL is required");
-    const parsed = parseDataUrl(dataUrl);
-    if (!parsed) throw httpError(400, "Invalid file. Use JPG, PNG, WebP, GIF, or a voice recording.");
-    const { mime, buf } = parsed;
-    if (mime.includes("svg") || mime.includes("html") || mime.includes("xml")) {
-      throw httpError(400, "This file type is not allowed.");
-    }
-    const isAudio = mime.startsWith("audio/");
-    if (isAudio && !ALLOWED_AUDIO.has(mime)) throw httpError(400, "Unsupported audio type.");
-    if (!isAudio && !ALLOWED_IMAGE.has(mime)) throw httpError(400, "Use JPG, PNG, WebP, or GIF.");
-    if (mime.includes("heic") || mime.includes("heif")) {
-      throw httpError(400, "iPhone HEIC photos are not supported. Export as JPG, then upload.");
-    }
-    const ext = extFor(mime, isAudio);
-    if (BLOCKED_EXT.has(ext)) throw httpError(400, "This file type is not allowed.");
-    const max = isAudio ? 8 * 1024 * 1024 : 5 * 1024 * 1024;
-    if (buf.length > max) throw httpError(400, isAudio ? "Voice note must be under 8 MB" : "Image must be under 5 MB");
-    ensureDir();
-    const safe = String(filename || (isAudio ? "voice" : "photo"))
-      .replace(/[^a-zA-Z0-9._-]/g, "")
-      .replace(/\.[^.]+$/, "")
-      .slice(0, 40);
-    const name = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safe || (isAudio ? "voice" : "photo")}.${ext}`;
-    const dest = path.resolve(uploadDir, name);
-    if (!dest.startsWith(resolvedUploadDir + path.sep)) throw httpError(400, "Invalid file name");
-    fs.writeFileSync(dest, buf);
-    res.status(201).json({ url: publicUrl(req, name), kind: isAudio ? "voice" : "image" });
+    const file = validateUpload({ dataUrl, filename });
+    const stored = await getStorage().put({ ...file, req });
+    res.status(201).json({ url: stored.url, kind: file.kind, storage: stored.storage });
   })
 );
 
+/** Serves files written by the local development fallback. */
 export function serveUpload(req, res) {
   const name = path.basename(String(req.params.name || ""));
   if (!SAFE_NAME.test(name)) {
@@ -133,4 +134,4 @@ export function serveUpload(req, res) {
 }
 
 export default router;
-export { uploadDir };
+export { resolvedUploadDir as uploadDir };

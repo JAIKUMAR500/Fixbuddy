@@ -3,7 +3,7 @@ import { Eye, EyeOff, ShieldCheck, Clock, BadgeCheck } from "lucide-react";
 import { View } from "../types";
 import { Button, Input } from "../components/ui";
 import { useApp } from "../api/AppContext";
-import { AuthAPI } from "../api/client";
+import { AuthAPI, persistSession } from "../api/client";
 import RoleGlyph from "../components/RoleGlyph";
 import GoogleSignIn from "../components/GoogleSignIn";
 import SupportContact from "../components/SupportContact";
@@ -77,8 +77,8 @@ export default function Auth({ mode, navigate }: { mode: "login" | "signup"; nav
     }
     setSubmitting(true);
     try {
-      const { token, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password, role: mode === "signup" ? selectedType : undefined });
-      localStorage.setItem("fb_token", token);
+      const { token, refreshToken, user } = await AuthAPI.reset({ email: form.email, otp, password: form.password, role: mode === "signup" ? selectedType : undefined });
+      persistSession(token, refreshToken);
       routeAfterAuth(user);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not reset password");

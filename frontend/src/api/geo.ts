@@ -33,15 +33,21 @@ export function readGps(): Promise<GeolocationPosition> {
   });
 }
 
+export function hasCoords(
+  point?: { lat?: number | null; lng?: number | null } | null
+): point is { lat: number; lng: number } {
+  return point?.lat != null && point?.lng != null && Number.isFinite(point.lat) && Number.isFinite(point.lng);
+}
+
 export function mapsNavUrl(
   dest: { lat: number; lng: number },
   origin?: { lat?: number | null; lng?: number | null } | null
 ) {
   const d = `${dest.lat},${dest.lng}`;
-  const hasOrigin = origin?.lat != null && origin?.lng != null;
-  return hasOrigin
-    ? `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${d}&travelmode=driving`
-    : `https://www.google.com/maps/dir/?api=1&destination=${d}&travelmode=driving`;
+  if (hasCoords(origin)) {
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${d}&travelmode=driving`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${d}&travelmode=driving`;
 }
 
 export function openMapsNav(

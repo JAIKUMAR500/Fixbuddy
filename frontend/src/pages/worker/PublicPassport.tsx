@@ -4,10 +4,15 @@ import { View } from "../../types";
 import { Button, Card } from "../../components/ui";
 import { PublicAPI, mediaUrl, type WorkerPassport } from "../../api/client";
 import { useApp } from "../../api/AppContext";
+import { passportCodeFromPath } from "../../api/routes";
 
 export default function PublicPassport({ navigate }: { navigate: (v: View) => void }) {
   const { user } = useApp();
-  const code = new URLSearchParams(window.location.search).get("pro") || user?.userCode || "";
+  const code =
+    passportCodeFromPath(window.location.pathname) ||
+    new URLSearchParams(window.location.search).get("pro") ||
+    user?.userCode ||
+    "";
   const [p, setP] = useState<WorkerPassport | null>(null);
   const [error, setError] = useState("");
 

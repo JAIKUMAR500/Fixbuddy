@@ -14,5 +14,8 @@
     "android:sync": "npm --prefix android-app run sync",
     "android:open": "npm --prefix android-app run open",
     "mobile": "npm --prefix mobile start"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   }
 }

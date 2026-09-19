@@ -17,6 +17,7 @@ import {
   startOfDay,
   todayKey,
   loadPassport,
+  upsertPassportSkill,
 } from "../utils/workerPower.js";
 
 const router = Router();
@@ -323,6 +324,8 @@ router.post(
     skills.push({ name, verified: false, pending: false });
     user.provider.skills = skills;
     await user.save();
+    const added = skills[skills.length - 1];
+    await upsertPassportSkill(user._id, added);
     res.status(201).json({
       skills: skills.map((s) => ({ id: String(s._id || s.name), name: s.name, verified: !!s.verified, pending: !!s.pending })),
     });
@@ -339,6 +342,7 @@ router.post(
     if (skill.verified) return res.json({ skill: { id: String(skill._id), name: skill.name, verified: true, pending: false } });
     skill.pending = true;
     await user.save();
+    await upsertPassportSkill(user._id, skill);
     res.json({ skill: { id: String(skill._id), name: skill.name, verified: false, pending: true } });
   })
 );

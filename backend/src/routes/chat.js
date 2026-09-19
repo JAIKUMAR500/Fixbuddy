@@ -9,6 +9,7 @@ import { asyncHandler, httpError, timeAgo } from "../utils/asyncHandler.js";
 import { isFulfiller } from "../utils/roles.js";
 import { paramObjectId, isValidObjectId } from "../middleware/validate.js";
 import { isOnline } from "../utils/geo.js";
+import { emitChatMessage } from "../realtime/io.js";
 
 const router = Router();
 
@@ -144,18 +145,20 @@ router.post(
     await conv.save();
     const other = String(conv.customerId) === req.userId ? conv.providerId : conv.customerId;
     await notify(other, { type: "message", text: `${req.user.name} sent you a message`, requestId: conv.requestId });
+    const payload = {
+      id: String(msg._id),
+      senderId: req.userId,
+      sender: String(conv.customerId) === req.userId ? "customer" : "provider",
+      text: msg.text,
+      kind: msg.kind,
+      mediaUrl: msg.mediaUrl,
+      deleted: false,
+      durationSec: msg.durationSec || 0,
+      time: new Date(msg.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
+    };
+    emitChatMessage(conv, payload);
     res.status(201).json({
-      message: {
-        id: String(msg._id),
-        senderId: req.userId,
-        sender: String(conv.customerId) === req.userId ? "customer" : "provider",
-        text: msg.text,
-        kind: msg.kind,
-        mediaUrl: msg.mediaUrl,
-        deleted: false,
-        durationSec: msg.durationSec || 0,
-        time: new Date(msg.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
-      },
+      message: payload,
     });
   })
 );

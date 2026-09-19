@@ -128,6 +128,10 @@ test("GET /api/ready does not leak infrastructure details", async () => {
     }
     assert.equal(res.data.mongoUri, undefined);
     assert.equal(res.data.host, undefined);
+    assert.equal(res.data.redisUrl, undefined);
+    if (res.data.redis != null) {
+      assert.ok(["off", "up", "down"].includes(res.data.redis));
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

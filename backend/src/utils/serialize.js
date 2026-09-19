@@ -1,6 +1,6 @@
 import { licenseView } from "./license.js";
-import { km, etaMinutes, isOnline } from "./geo.js";
-import { cancelPolicyFor } from "./jobLock.js";
+import { km, etaMinutes, isOnline, TRACKING_STATUSES } from "./geo.js";
+import { approxCoord, cancelPolicyFor } from "./jobLock.js";
 import { FINANCIAL_MODE, FINANCE_STATUS, SIMULATION_LABEL } from "../services/payments/config.js";
 import { paiseToRupees } from "../services/payments/money.js";
 
@@ -100,7 +100,7 @@ export function professionalPublic(user, extra = {}) {
     serviceAreas: p.serviceAreas || [],
     languages: p.languages || [],
     bio: p.passportBio || p.description || "",
-    skills: (p.skills || []).map((s) => ({
+    skills: (extra.skills || p.skills || []).map((s) => ({
       name: s.name,
       verified: !!s.verified,
       pending: !!s.pending,
@@ -170,10 +170,10 @@ export function presentRequest(doc, extras = {}) {
     area: r.area,
     city: r.city,
     landmark: extras.hideContact ? "" : r.landmark || "",
-    lat: extras.hideContact ? null : r.lat ?? null,
-    lng: extras.hideContact ? null : r.lng ?? null,
-    workerLat: r.workerLat ?? null,
-    workerLng: r.workerLng ?? null,
+    lat: extras.hideContact ? approxCoord(r.lat) : r.lat ?? null,
+    lng: extras.hideContact ? approxCoord(r.lng) : r.lng ?? null,
+    workerLat: TRACKING_STATUSES.includes(r.status) ? r.workerLat ?? null : null,
+    workerLng: TRACKING_STATUSES.includes(r.status) ? r.workerLng ?? null : null,
     workerLocationAt: r.workerLocationAt || null,
     photos: r.photos || [],
     voiceNote: r.voiceNote || "",

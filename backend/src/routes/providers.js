@@ -6,6 +6,7 @@ import { isProviderAccount } from "../utils/roles.js";
 import { km, isOnline } from "../utils/geo.js";
 import { paramObjectId } from "../middleware/validate.js";
 import { WorkerLock } from "../models/WorkerLock.js";
+import { forgetAuthUser } from "../middleware/auth.js";
 
 const router = Router();
 router.param("id", paramObjectId("id"));
@@ -105,6 +106,7 @@ router.post(
       },
       { new: true }
     ).lean();
+    forgetAuthUser(req.userId);
     res.json({ user: publicUser(user) });
   })
 );
@@ -155,6 +157,7 @@ router.patch(
       set["provider.lng"] = Number(body.lng);
     }
     const user = await User.findByIdAndUpdate(req.userId, { $set: set }, { new: true }).lean();
+    forgetAuthUser(req.userId);
     res.json({ user: publicUser(user) });
   })
 );

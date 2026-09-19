@@ -470,7 +470,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
             onClick={() =>
               void run("watch", async () => {
                 const r = await RequestAPI.watchLink(job.id);
-                const url = `${window.location.origin}/?watch=${r.token}`;
+                const url = `${window.location.origin}/watch/${r.token}`;
                 setWatchUrl(url);
                 try {
                   await navigator.clipboard.writeText(url);

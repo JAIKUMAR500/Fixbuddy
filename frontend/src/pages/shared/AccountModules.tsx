@@ -234,10 +234,6 @@ export function SupportPage() {
   );
 }
 
-export function TeamPage() {
-  return null;
-}
-
 function lastDayKeys(days: number) {
   const start = new Date();
   start.setHours(0, 0, 0, 0);

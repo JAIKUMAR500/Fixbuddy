@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# Secrets are never inlined here. Real gateway, Redis, and storage credentials
+# belong in GitHub environment secrets if a future job needs them. This pipeline
+# runs entirely in simulated financial mode with a disposable MongoDB.
+env:
+  NODE_VERSION: "22"
+  FINANCIAL_MODE: development
+  CI: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (typecheck, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: frontend
+
+      - name: Unit and component tests
+        run: npm run test
+        working-directory: frontend
+
+      - name: Production build
+        run: npm run build
+        working-directory: frontend
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  backend:
+    name: Backend (tests against MongoDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway values for CI only. No production secret is referenced.
+      MONGODB_URI: mongodb://127.0.0.1:27017/fixbuddy_ci
+      LOCK_TEST_MONGO_URI: mongodb://127.0.0.1:27017/fixbuddy_ci_lock
+      JWT_SECRET: ci-only-secret-value-that-is-long-enough-32
+      FINANCIAL_MODE: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Lint (syntax check every source file)
+        run: |
+          set -e
+          for file in $(git ls-files 'src/**/*.js' 'test/**/*.js'); do
+            node --check "$file"
+          done
+        working-directory: backend
+
+      - name: Backend tests
+        run: npm test
+        working-directory: backend
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [frontend, backend]
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MONGODB_URI: mongodb://127.0.0.1:27017/fixbuddy_e2e
+      JWT_SECRET: ci-only-secret-value-that-is-long-enough-32
+      ADMIN_EMAIL: admin@fixbuddy.test
+      ADMIN_PASSWORD: ci-admin-password
+      SEED_PASSWORD: ci-seed-password
+      FINANCIAL_MODE: development
+      E2E: "1"
+      VITE_E2E: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install E2E dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Seed the database
+        run: npm run seed
+        working-directory: backend
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7

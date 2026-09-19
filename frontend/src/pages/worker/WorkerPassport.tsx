@@ -32,7 +32,7 @@ export default function WorkerPassport({ navigate }: { navigate: (v: View) => vo
   }, []);
 
   const code = p?.userCode || user?.userCode || "";
-  const publicUrl = useMemo(() => `${window.location.origin}/?pro=${encodeURIComponent(code)}`, [code]);
+  const publicUrl = useMemo(() => `${window.location.origin}/pro/${encodeURIComponent(code)}`, [code]);
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(publicUrl)}`;
 
   const save = async () => {

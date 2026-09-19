@@ -1,16 +1,21 @@
 import { rupeesToPaise } from "./money.js";
+import { isGatewayReady, resolvedFinancialMode } from "./gatewayConfig.js";
 
-/** Development-only. Production providers must not be selected from this file. */
-export const FINANCIAL_MODE = "development";
+/**
+ * Mode resolved once at startup. It is only "production" when
+ * FINANCIAL_MODE=production AND a gateway is completely configured, so a
+ * half-configured deployment can never move real money.
+ */
+export const FINANCIAL_MODE = isGatewayReady() ? "production" : "development";
 
 export function assertDevelopmentFinance() {
-  const mode = String(process.env.FINANCIAL_MODE || FINANCIAL_MODE).toLowerCase();
-  if (mode !== "development") {
-    throw new Error("FINANCIAL_MODE must remain development. Real payments are not enabled.");
+  if (resolvedFinancialMode() !== "development") {
+    throw new Error("FINANCIAL_MODE must remain development for this operation.");
   }
-  return FINANCIAL_MODE;
+  return "development";
 }
 export const SIMULATION_LABEL = "DEVELOPMENT / SIMULATED — NO REAL MONEY";
+export const PRODUCTION_LABEL = "LIVE PAYMENT";
 
 export const DEFAULT_COMMISSION_PERCENT = 10;
 export const DEFAULT_TRAVEL_COMPENSATION_INR = 75;
@@ -23,12 +28,27 @@ export const LEDGER_TYPES = {
   COMPENSATION: "CANCELLATION_COMPENSATION_SIMULATION",
 };
 
+/** Live-money counterparts. Same one-entry-per-job-and-type uniqueness. */
+export const LIVE_LEDGER_TYPES = {
+  JOB_PAYMENT: "JOB_PAYMENT_CAPTURED",
+  COMMISSION: "COMMISSION_COLLECTED",
+  WORKER_EARNING: "WORKER_EARNING_CREDITED",
+  COMPENSATION: "CANCELLATION_COMPENSATION_PAID",
+};
+
+export function ledgerTypesFor(mode) {
+  return mode === "production" ? LIVE_LEDGER_TYPES : LEDGER_TYPES;
+}
+
 export const FINANCE_STATUS = {
   NOT_APPLICABLE: "not_applicable",
   PENDING: "pending_simulation",
   SIMULATED: "simulated",
   CANCELLED: "cancelled",
   REFUNDED: "refunded_simulation",
+  AWAITING_PAYMENT: "awaiting_payment",
+  CAPTURED: "captured",
+  FAILED: "failed",
 };
 
 export const CANCEL_SCENARIOS = {

@@ -1,9 +1,36 @@
 import { httpError } from "../utils/asyncHandler.js";
+import { MemoryRateLimitStore, RedisRateLimitStore } from "./rateLimitStore.js";
+import { env } from "../config/env.js";
 
-const buckets = new Map();
+let store = new MemoryRateLimitStore();
 
-function prune(now, windowMs, hits) {
-  return hits.filter((t) => now - t < windowMs);
+/**
+ * Installs a shared store. Called at startup when REDIS_URL is configured so
+ * the sliding window holds across clustered API instances.
+ */
+export function useRedisRateLimitStore(client) {
+  if (!client) {
+    store = new MemoryRateLimitStore();
+    return store;
+  }
+  store = new RedisRateLimitStore(client, { fallback: new MemoryRateLimitStore() });
+  return store;
+}
+
+/** Status for /api/ready. Never includes the Redis URL or credentials. */
+export async function rateLimitRedisHealth() {
+  if (store.kind !== "redis") {
+    return { configured: Boolean(env.redisUrl), connected: false };
+  }
+  if (typeof store.ping === "function") {
+    const connected = await store.ping();
+    return { configured: true, connected };
+  }
+  return { configured: true, connected: store.healthy !== false };
+}
+
+export function rateLimitStoreKind() {
+  return store.kind;
 }
 
 export function clientKey(req) {
@@ -21,8 +48,7 @@ export function identKey(value) {
 }
 
 /**
- * In-memory limiter (one Render instance). Multi-instance production should
- * replace this with a shared store such as Redis.
+ * Sliding-window limiter. Backed by Redis when configured, otherwise in-process.
  */
 export function rateLimit({
   windowMs,
@@ -31,34 +57,36 @@ export function rateLimit({
   message = "Too many attempts. Try again later.",
 } = {}) {
   return (req, res, next) => {
+    if (process.env.E2E === "1") return next();
     const k = typeof key === "function" ? key(req) : String(key);
     const now = Date.now();
-    let hits = prune(now, windowMs, buckets.get(k) || []);
-    if (hits.length >= max) {
-      const retrySec = Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000));
-      res.setHeader("Retry-After", String(retrySec));
-      return next(httpError(429, message));
-    }
-    hits.push(now);
-    buckets.set(k, hits);
-    if (buckets.size > 20000) {
-      for (const [oldKey, oldHits] of buckets) {
-        const kept = prune(now, windowMs, oldHits);
-        if (!kept.length) buckets.delete(oldKey);
-        else buckets.set(oldKey, kept);
+    const decide = ({ count, oldest }) => {
+      if (count > max) {
+        const retrySec = Math.max(1, Math.ceil((windowMs - (now - oldest)) / 1000));
+        res.setHeader("Retry-After", String(retrySec));
+        return next(httpError(429, message));
       }
+      res.setHeader("X-RateLimit-Limit", String(max));
+      res.setHeader("X-RateLimit-Remaining", String(Math.max(0, max - count)));
+      next();
+    };
+
+    const result = store.hit(k, windowMs, now);
+    if (result && typeof result.then === "function") {
+      result.then(decide).catch(() => next());
+      return;
     }
-    next();
+    decide(result);
   };
 }
 
 export function resetRateLimitStore() {
-  buckets.clear();
+  store.reset();
 }
 
 export const AUTH_LIMITS = {
   login: { windowMs: 15 * 60 * 1000, max: 10 },
-  signup: { windowMs: 60 * 60 * 1000, max: 5 },
+  signup: { windowMs: 60 * 60 * 1000, max: env.isProduction ? 5 : 80 },
   forgot: { windowMs: 15 * 60 * 1000, max: 3 },
   forgotIp: { windowMs: 15 * 60 * 1000, max: 8 },
   reset: { windowMs: 15 * 60 * 1000, max: 10 },
@@ -66,4 +94,6 @@ export const AUTH_LIMITS = {
   watch: { windowMs: 15 * 60 * 1000, max: 30 },
   jobOtp: { windowMs: 15 * 60 * 1000, max: 20 },
   adminMutate: { windowMs: 15 * 60 * 1000, max: 40 },
+  upload: { windowMs: 15 * 60 * 1000, max: 20 },
+  payment: { windowMs: 15 * 60 * 1000, max: 20 },
 };

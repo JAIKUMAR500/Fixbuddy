@@ -3,6 +3,7 @@ import { DailyTarget } from "../models/DailyTarget.js";
 import { CancellationRecord } from "../models/CancellationRecord.js";
 import { Crew } from "../models/Crew.js";
 import { User } from "../models/User.js";
+import { WorkerPassport } from "../models/WorkerPassport.js";
 import { km, etaMinutes, PAID_JOB_STATUSES } from "./geo.js";
 
 export function todayKey(d = new Date()) {
@@ -108,7 +109,72 @@ export function badgesFor(stats, crewLeader) {
   if (stats.cancelPct <= 5 && stats.jobs >= 5) list.push({ id: "reliable", label: "Reliable Worker", icon: "🤝" });
   if (crewLeader) list.push({ id: "leader", label: "Team Leader", icon: "👥" });
   if (stats.verified) list.push({ id: "verified", label: "Verified Professional", icon: "✓" });
+  if (stats.skillVerified) list.push({ id: "skill-verified", label: "Verified Skill", icon: "✓" });
   return list;
+}
+
+function skillKey(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+export async function upsertPassportSkill(workerId, skill) {
+  const name = String(skill.name || "").trim();
+  if (!workerId || !name) return null;
+  const verified = !!skill.verified;
+  const pending = !!skill.pending && !verified;
+  const status = verified ? "verified" : pending ? "pending" : "unverified";
+  let passport = await WorkerPassport.findOne({ workerId });
+  if (!passport) passport = await WorkerPassport.create({ workerId, skills: [] });
+  const existing = passport.skills.find((row) => skillKey(row.name) === skillKey(name));
+  if (existing) {
+    existing.name = name;
+    existing.verified = verified;
+    existing.verificationStatus = status;
+    if (pending && !existing.verificationRequestedAt) existing.verificationRequestedAt = new Date();
+    if (verified) {
+      existing.verifiedAt = existing.verifiedAt || new Date();
+      existing.verificationRequestedAt = existing.verificationRequestedAt || new Date();
+    }
+  } else {
+    passport.skills.push({
+      name,
+      verified,
+      verificationStatus: status,
+      verificationRequestedAt: pending || verified ? new Date() : null,
+      verifiedAt: verified ? new Date() : null,
+    });
+  }
+  await passport.save();
+  return passport;
+}
+
+export async function syncUserSkillFromPassport(workerId, passportSkill) {
+  const user = await User.findById(workerId);
+  if (!user || !passportSkill?.name) return null;
+  user.provider = user.provider || {};
+  const skills = user.provider.skills || [];
+  const verified = passportSkill.verificationStatus === "verified" || !!passportSkill.verified;
+  const pending = passportSkill.verificationStatus === "pending" && !verified;
+  const existing = skills.find((row) => skillKey(row.name) === skillKey(passportSkill.name));
+  if (existing) {
+    existing.name = passportSkill.name;
+    existing.verified = verified;
+    existing.pending = pending;
+  } else {
+    skills.push({ name: passportSkill.name, verified, pending });
+  }
+  user.provider.skills = skills;
+  await user.save();
+  return user;
+}
+
+export async function healPendingSkillsIntoPassport() {
+  const users = await User.find({ "provider.skills.pending": true }).select("provider.skills").lean();
+  for (const user of users) {
+    for (const skill of user.provider?.skills || []) {
+      if (skill.pending && !skill.verified) await upsertPassportSkill(user._id, skill);
+    }
+  }
 }
 
 export function skillMatch(worker, category) {
@@ -267,7 +333,11 @@ export async function loadPassport(user) {
     user.provider.skills = skills;
   }
   const stats = computePassport(user, jobs, cancelCount, onTimeCount(jobs));
+  stats.skillVerified = (skills || []).some((s) => s.verified);
   const badges = badgesFor(stats, !!crewLeader);
+  if (changed) {
+    await Promise.all(skills.filter((s) => s.verified).map((s) => upsertPassportSkill(user._id, s)));
+  }
   const proof = (jobs || [])
     .filter((j) => (j.workPhotos?.after || []).length || (j.workPhotos?.before || []).length)
     .slice(-8)

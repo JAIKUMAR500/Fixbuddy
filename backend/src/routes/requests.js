@@ -37,6 +37,7 @@ import { normalizeLang, translateText } from "../utils/translate.js";
 import { rateLimit, AUTH_LIMITS, clientKey } from "../middleware/rateLimit.js";
 import { createWatchToken, hashWatchToken, watchExpiresAt } from "../utils/watchToken.js";
 import { isValidObjectId } from "../middleware/validate.js";
+import { emitJobStatusChange, emitLocationUpdate } from "../realtime/io.js";
 
 const router = Router();
 
@@ -53,6 +54,7 @@ async function nextCode() {
 function pushTimeline(doc, status, note) {
   doc.status = status;
   doc.timeline.push({ status, note, at: new Date() });
+  emitJobStatusChange(doc);
 }
 
 function canRevealContact(req, doc) {
@@ -522,6 +524,7 @@ router.post(
     taken.customerLanguage = customerLanguage;
     taken.translatedDescription = translateText(taken.description, customerLanguage, workerLanguage);
     await taken.save();
+    emitJobStatusChange(taken);
     await ensureConversation(taken);
     await notify(taken.customerId, {
       type: "success",
@@ -716,6 +719,7 @@ router.patch(
     doc.workerLng = lng;
     doc.workerLocationAt = new Date();
     await doc.save();
+    emitLocationUpdate(doc);
     await User.updateOne({ _id: req.userId }, { $set: { lat, lng, lastSeenAt: new Date(), "provider.lat": lat, "provider.lng": lng } });
     const extras = await loadPeople(doc.toObject(), req);
     extras.revealOtp = false;
@@ -815,6 +819,7 @@ router.post(
     }
     await releaseLocksForJob(doc._id);
     const latest = await Request.findById(doc._id);
+    emitJobStatusChange(latest);
     const helpers = (latest.crewMemberIds || []).map(String).filter((id) => id !== String(latest.providerId));
     if (helpers.length && !alreadyPaid) {
       await notifyMany(helpers, {
@@ -935,6 +940,7 @@ router.post(
       }
       throw httpError(409, "This job changed before it could be cancelled. Refresh and try again.");
     }
+    emitJobStatusChange(cancelled);
     await releaseLocksForJob(cancelled._id);
     const payments = getPaymentService();
     const sim = await payments.simulateCancellation(
@@ -957,9 +963,11 @@ router.post(
 router.post(
   "/:id/review",
   asyncHandler(async (req, res) => {
-    if (!isCreator(req.user.role)) throw httpError(403, "Job creators only");
     const doc = await Request.findById(req.params.id);
-    if (!doc || (String(doc.customerId) !== req.userId && !isAdmin(req.user.role))) throw httpError(403, "Not your job");
+    if (!doc) throw httpError(404, "Request not found");
+    const isOwner = String(doc.customerId) === req.userId || isAdmin(req.user.role);
+    const isAssignedWorker = Boolean(doc.providerId) && String(doc.providerId) === req.userId;
+    if (!isOwner && !isAssignedWorker) throw httpError(403, "Not your job");
     if (!["completed", "payment_collected", "customer_completed", "reviewed"].includes(doc.status)) {
       throw httpError(400, "Job is not ready for a review yet");
     }
@@ -968,6 +976,7 @@ router.post(
     }
     const skip = req.body.skip === true;
     if (skip) {
+      if (!isOwner) throw httpError(403, "Only the customer can skip a review");
       if (doc.status !== "reviewed") {
         doc.customerCompleted = true;
         pushTimeline(doc, "reviewed", "Customer skipped the review");
@@ -979,9 +988,9 @@ router.post(
     }
     const rating = Number(req.body.rating);
     if (!rating || rating < 1 || rating > 5) throw httpError(400, "Rating 1–5 is required");
-    const existing = await Review.findOne({ requestId: doc._id });
+    const existing = await Review.findOne({ requestId: doc._id, authorId: req.userId });
     if (existing) {
-      if (doc.status !== "reviewed") {
+      if (isOwner && doc.status !== "reviewed") {
         pushTimeline(doc, "reviewed", `Rated ${existing.rating}/5`);
         await doc.save();
       }
@@ -992,8 +1001,10 @@ router.post(
     try {
       await Review.create({
         requestId: doc._id,
-        customerId: req.userId,
+        authorId: req.userId,
+        customerId: doc.customerId,
         providerId: doc.providerId,
+        fromRole: isAssignedWorker && !isOwner ? "worker" : "customer",
         rating,
         comment: String(req.body.comment || "").slice(0, 2000),
       });
@@ -1001,20 +1012,26 @@ router.post(
       if (isDuplicateKeyError(err)) throw httpError(409, "Already reviewed");
       throw err;
     }
-    pushTimeline(doc, "reviewed", `Rated ${rating}/5`);
-    await doc.save();
-    await releaseLocksForJob(doc._id);
-    const stats = await Review.aggregate([
-      { $match: { providerId: doc.providerId } },
-      { $group: { _id: "$providerId", avg: { $avg: "$rating" }, count: { $sum: 1 } } },
-    ]);
-    if (stats[0]) {
-      await User.updateOne(
-        { _id: doc.providerId },
-        { $set: { "provider.ratingAvg": Math.round(stats[0].avg * 10) / 10, "provider.ratingCount": stats[0].count } }
-      );
+    if (isOwner && doc.status !== "reviewed") {
+      pushTimeline(doc, "reviewed", `Rated ${rating}/5`);
+      await doc.save();
+      await releaseLocksForJob(doc._id);
     }
-    await notify(doc.providerId, { type: "review", text: `${req.user.name} left a ${rating}-star review`, requestId: doc._id });
+    if (isOwner) {
+      const stats = await Review.aggregate([
+        { $match: { providerId: doc.providerId, fromRole: "customer" } },
+        { $group: { _id: "$providerId", avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+      ]);
+      if (stats[0]) {
+        await User.updateOne(
+          { _id: doc.providerId },
+          { $set: { "provider.ratingAvg": Math.round(stats[0].avg * 10) / 10, "provider.ratingCount": stats[0].count } }
+        );
+      }
+      await notify(doc.providerId, { type: "review", text: `${req.user.name} left a ${rating}-star review`, requestId: doc._id });
+    } else {
+      await notify(doc.customerId, { type: "review", text: `${req.user.name} rated this job ${rating}/5`, requestId: doc._id });
+    }
     const extras = await loadPeople(doc.toObject(), req);
     res.json({ request: presentRequest(doc, extras) });
   })

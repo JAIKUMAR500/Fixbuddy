@@ -21,6 +21,7 @@ import { paiseToRupees } from "../services/payments/money.js";
 import { buildLicense, licenseView, createUserWithCode } from "../utils/license.js";
 import { WorkerPassport } from "../models/WorkerPassport.js";
 import { BUSY_JOB_STATUSES, PAID_JOB_STATUSES } from "../utils/geo.js";
+import { healPendingSkillsIntoPassport, loadPassport, syncUserSkillFromPassport } from "../utils/workerPower.js";
 import { paramObjectId } from "../middleware/validate.js";
 import { rateLimit, AUTH_LIMITS, clientKey } from "../middleware/rateLimit.js";
 
@@ -282,6 +283,7 @@ router.get(
 router.get(
   "/skill-verification",
   asyncHandler(async (_req, res) => {
+    await healPendingSkillsIntoPassport();
     const rows = await WorkerPassport.find({ "skills.verificationStatus": "pending" }).populate("workerId", "name email userCode").lean();
     res.json({ skills: rows.flatMap((row) => (row.skills || []).filter((skill) => skill.verificationStatus === "pending").map((skill) => ({ id: String(skill._id), workerId: String(row.workerId?._id || row.workerId), worker: row.workerId?.name || "Worker", email: row.workerId?.email || "", name: skill.name, level: skill.level, requestedAt: skill.verificationRequestedAt }))) });
   })
@@ -300,6 +302,8 @@ router.patch(
     skill.verifiedAt = status === "verified" ? new Date() : null;
     skill.verificationNote = String(req.body.note || "").slice(0, 300);
     await passport.save();
+    const worker = await syncUserSkillFromPassport(passport.workerId, skill);
+    if (worker) await loadPassport(worker);
     await logAudit(req, `${status} worker skill`, `${skill.name} · ${req.params.workerId}`);
     await notifyMany([passport.workerId], { type: status === "verified" ? "success" : "info", text: `${skill.name} skill verification is ${status}.` });
     res.json({ ok: true, status });

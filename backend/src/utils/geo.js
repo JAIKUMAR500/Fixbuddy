@@ -1,5 +1,9 @@
+export function hasCoords(lat, lng) {
+  return lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+}
+
 export function km(lat1, lng1, lat2, lng2) {
-  if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return null;
+  if (!hasCoords(lat1, lng1) || !hasCoords(lat2, lng2)) return null;
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;

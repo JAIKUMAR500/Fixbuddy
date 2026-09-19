@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AppNotif,
   AppUser,
@@ -9,9 +10,14 @@ import {
   Provider as ApiProvider,
   RequestAPI,
   api,
+  persistSession,
+  clearSession,
+  hasSessionHint,
 } from "./client";
+import { connectRealtime, disconnectRealtime, isRealtimeConnected, joinRealtimeJob, subscribeRealtime } from "./realtime";
 import { View } from "../types";
-import { roleHome } from "./roles";
+import { PUBLIC_VIEWS, canAccessView, roleHome } from "./roles";
+import { matchRoute, pathForView } from "./routes";
 import { readGps } from "./geo";
 import { isEngagedStatus } from "./jobLock";
 
@@ -92,12 +98,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentJobRef = useRef<JobRequest | null>(null);
   currentJobRef.current = currentJob;
 
-  const goToActiveJob = useCallback((job: JobRequest) => {
-    setActiveRequestIdState(job.id);
-    setViewingRequestId(job.id);
-    setView("active-job");
-    window.scrollTo(0, 0);
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+  const roleRef = useRef<string | null>(null);
+  roleRef.current = user?.role ?? null;
+  const viewRef = useRef<View>(view);
+  viewRef.current = view;
+  const viewingRef = useRef<string | null>(viewingRequestId);
+  viewingRef.current = viewingRequestId;
+  const pathRef = useRef(location.pathname);
+  pathRef.current = location.pathname;
+  const searchRef = useRef(location.search);
+  searchRef.current = location.search;
+  /** Path this provider pushed and is still waiting to observe. */
+  const pendingPathRef = useRef<string | null>(null);
+  const bootPathRef = useRef(location.pathname);
+
+  /** Watch tokens and professional codes are carried by the URL, not by state. */
+  const urlExtra = useCallback((next: View) => {
+    const parts = pathRef.current.split("/").filter(Boolean);
+    const qs = new URLSearchParams(searchRef.current);
+    if (next === "family-watch") {
+      return parts[0] === "watch" ? parts[1] || "" : qs.get("watch") || "";
+    }
+    if (next === "public-passport") {
+      return ["passport", "pro", "workers"].includes(parts[0] || "") ? parts[1] || "" : qs.get("pro") || "";
+    }
+    return "";
   }, []);
+
+  /** Keeps the address bar in step with the view state machine. */
+  const syncUrl = useCallback(
+    (next: View, requestId?: string | null) => {
+      const target = pathForView(next, {
+        requestId: requestId === undefined ? viewingRef.current : requestId,
+        role: roleRef.current,
+        code: urlExtra(next),
+      });
+      if (pathRef.current === target) {
+        pendingPathRef.current = null;
+        return;
+      }
+      pendingPathRef.current = target;
+      routerNavigate(target);
+    },
+    [routerNavigate, urlExtra]
+  );
+
+  const applyView = useCallback(
+    (next: View, requestId?: string | null) => {
+      setView(next);
+      syncUrl(next, requestId);
+    },
+    [syncUrl]
+  );
+
+  const goToActiveJob = useCallback(
+    (job: JobRequest) => {
+      setActiveRequestIdState(job.id);
+      setViewingRequestId(job.id);
+      applyView("active-job", job.id);
+      window.scrollTo(0, 0);
+    },
+    [applyView]
+  );
 
   const navigate = useCallback((v: View) => {
     const job = currentJobRef.current;
@@ -105,9 +169,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToActiveJob(job);
       return;
     }
-    setView(v);
+    applyView(v);
     window.scrollTo(0, 0);
-  }, [goToActiveJob]);
+  }, [goToActiveJob, applyView]);
 
   const setActiveRequestId = useCallback((id: string | null) => {
     setActiveRequestIdState(id);
@@ -121,11 +185,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveRequestIdState(id);
       if (dest === "active-job") {
         if (isFocusJob(job) && job.id === id) {
-          setView("active-job");
+          applyView("active-job", id);
           window.scrollTo(0, 0);
           return;
         }
-        setView("request-status");
+        applyView("request-status", id);
         window.scrollTo(0, 0);
         return;
       }
@@ -133,14 +197,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         goToActiveJob(job);
         return;
       }
-      setView(dest);
+      applyView(dest, id);
       window.scrollTo(0, 0);
     },
-    [goToActiveJob]
+    [goToActiveJob, applyView]
   );
 
   const refreshCurrentJob = useCallback(async () => {
-    if (!localStorage.getItem("fb_token")) {
+    if (!hasSessionHint()) {
       setCurrentJob(null);
       currentJobRef.current = null;
       setActiveRequestIdState(null);
@@ -186,8 +250,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string, role?: string) => {
-      const { token, user: u } = await AuthAPI.login(String(email || "").trim(), password, role);
-      localStorage.setItem("fb_token", token);
+      const { token, refreshToken, user: u } = await AuthAPI.login(String(email || "").trim(), password, role);
+      persistSession(token, refreshToken);
       routeAfterAuth(u);
       return u;
     },
@@ -196,8 +260,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signup = useCallback(
     async (body: object) => {
-      const { token, user: u } = await AuthAPI.signup(body);
-      localStorage.setItem("fb_token", token);
+      const { token, refreshToken, user: u } = await AuthAPI.signup(body);
+      persistSession(token, refreshToken);
       routeAfterAuth(u);
       return u;
     },
@@ -206,8 +270,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const googleLogin = useCallback(
     async (credential: string, role?: string) => {
-      const { token, user: u } = await AuthAPI.google(credential, role);
-      localStorage.setItem("fb_token", token);
+      const { token, refreshToken, user: u } = await AuthAPI.google(credential, role);
+      persistSession(token, refreshToken);
       routeAfterAuth(u);
       return u;
     },
@@ -220,7 +284,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* The local session must still be removed when the network is unavailable. */
     }
-    localStorage.removeItem("fb_token");
+    clearSession();
+    disconnectRealtime();
     currentJobRef.current = null;
     setUser(null);
     setActiveRequestIdState(null);
@@ -228,12 +293,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentJob(null);
     setSelectedProvider(null);
     setUnreadNotifications(0);
-    setView("landing");
+    applyView("landing", null);
     window.scrollTo(0, 0);
-  }, []);
+  }, [applyView]);
 
   useEffect(() => {
     const onUnauthorized = () => {
+      clearSession();
+      disconnectRealtime();
       currentJobRef.current = null;
       setUser(null);
       setActiveRequestIdState(null);
@@ -241,26 +308,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentJob(null);
       setSelectedProvider(null);
       setUnreadNotifications(0);
-      setView("login");
+      applyView("login", null);
     };
     window.addEventListener("fixbuddy:unauthorized", onUnauthorized);
     return () => window.removeEventListener("fixbuddy:unauthorized", onUnauthorized);
-  }, []);
+  }, [applyView]);
 
   useEffect(() => {
     const token = localStorage.getItem("fb_token");
+    const sessionHint = hasSessionHint();
     const qs = new URLSearchParams(window.location.search);
     const pro = qs.get("pro");
     const watch = qs.get("watch");
-    if (!token) {
-      if (watch) setView("family-watch");
-      else if (pro) setView("public-passport");
+    const bootPath = bootPathRef.current;
+
+    /** A deep link is any app route other than the bare landing page. */
+    const deepLinkFor = (role: string | null) => {
+      const routed = matchRoute(bootPath, role);
+      return routed && routed.view !== "landing" ? routed : null;
+    };
+
+    if (!token && !sessionHint) {
+      const routed = deepLinkFor(null);
+      if (watch || routed?.view === "family-watch") setView("family-watch");
+      else if (pro || routed?.view === "public-passport") setView("public-passport");
+      else if (routed && PUBLIC_VIEWS.includes(routed.view)) setView(routed.view);
+      else if (routed) applyView("login", null);
+      else if (bootPath !== "/") applyView("landing", null);
       setReady(true);
       return;
     }
+
     AuthAPI.me()
       .then(async ({ user: u }) => {
         setUser(u);
+        roleRef.current = u.role;
         if (watch) {
           setView("family-watch");
           return;
@@ -269,10 +351,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setView("public-passport");
           return;
         }
+        const routed = deepLinkFor(u.role);
+        if (routed?.view === "family-watch" || routed?.view === "public-passport") {
+          setView(routed.view);
+          return;
+        }
+        const allowed = routed && canAccessView(u, routed.view) ? routed : null;
         const needsOnboard =
           (u.role === "worker" || u.role === "business" || u.role === "provider") && !u.provider?.onboarded;
         if (needsOnboard) {
-          setView("business-onboarding");
+          applyView("business-onboarding", null);
           return;
         }
         try {
@@ -282,28 +370,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           currentJobRef.current = focused;
           if (focused) {
             setActiveRequestIdState(focused.id);
-            setView("active-job");
-            return;
+            // The job lock still wins over any shopping deep link.
+            if (!allowed || SHOPPING_VIEWS.includes(allowed.view)) {
+              setViewingRequestId(focused.id);
+              applyView("active-job", focused.id);
+              return;
+            }
+          } else {
+            setActiveRequestIdState(null);
           }
-          setActiveRequestIdState(null);
         } catch {
-          /* keep home */
+          /* keep the resolved route below */
         }
-        setView(roleHome(u));
+        if (allowed) {
+          if (allowed.requestId) {
+            setViewingRequestId(allowed.requestId);
+            setActiveRequestIdState(allowed.requestId);
+          }
+          setView(allowed.view);
+        } else {
+          applyView(roleHome(u), null);
+        }
         void refreshLocation(u, setUser);
       })
       .catch((error) => {
         if (error instanceof ApiError && error.status !== 401) {
           setUser(null);
-          setView("login");
+          applyView("login", null);
           return;
         }
-        localStorage.removeItem("fb_token");
+        clearSession();
         setUser(null);
-        setView(watch ? "family-watch" : pro ? "public-passport" : "login");
+        if (watch) setView("family-watch");
+        else if (pro) setView("public-passport");
+        else applyView("login", null);
       })
       .finally(() => setReady(true));
+    // Boot runs once; applyView is stable for the lifetime of the provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** URL is the entry point for refresh, deep links, and Back/Forward. */
+  useEffect(() => {
+    if (!ready) return;
+    if (pendingPathRef.current) {
+      // A redirect of ours is still in flight; do not resolve the stale path.
+      if (location.pathname !== pendingPathRef.current) return;
+      pendingPathRef.current = null;
+    }
+    const routed = matchRoute(location.pathname, roleRef.current);
+    if (!routed) return;
+    if (routed.requestId && routed.requestId !== viewingRef.current) {
+      setViewingRequestId(routed.requestId);
+      setActiveRequestIdState(routed.requestId);
+    }
+    if (routed.view !== viewRef.current) setView(routed.view);
+  }, [location.pathname, ready]);
 
   useEffect(() => {
     if (!user) return;
@@ -352,13 +474,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
     void poll();
-    const timer = window.setInterval(() => void poll(), 8000);
+    const timer = window.setInterval(() => void poll(), isRealtimeConnected() ? 30_000 : 8000);
     return () => window.clearInterval(timer);
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user) {
+      disconnectRealtime();
+      return;
+    }
+    connectRealtime(localStorage.getItem("fb_token") || undefined);
+    const offStatus = subscribeRealtime("job:status_change", () => {
+      void refreshCurrentJob();
+    });
+    return () => {
+      offStatus();
+    };
+  }, [user?.id, refreshCurrentJob]);
+
+  useEffect(() => {
+    joinRealtimeJob(currentJob?.id);
+  }, [currentJob?.id]);
+
+  useEffect(() => {
     if (!user) return;
-    const t = window.setInterval(() => void refreshCurrentJob(), 12000);
+    const t = window.setInterval(() => void refreshCurrentJob(), isRealtimeConnected() ? 30_000 : 12_000);
     return () => window.clearInterval(t);
   }, [user, refreshCurrentJob]);
 

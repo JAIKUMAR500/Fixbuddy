@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import { env } from "./config/env.js";
+import { isAllowedOrigin } from "./config/cors.js";
 import { auth } from "./middleware/auth.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import { securityHeaders } from "./middleware/securityHeaders.js";
@@ -17,43 +18,13 @@ import adminRoutes from "./routes/admin.js";
 import statsRoutes from "./routes/stats.js";
 import categoryRoutes from "./routes/categories.js";
 import uploadRoutes, { serveUpload } from "./routes/upload.js";
+import paymentRoutes, { paymentWebhook } from "./routes/payments.js";
 import teamRoutes from "./routes/team.js";
 import workerRoutes from "./routes/worker.js";
 import crewRoutes from "./routes/crews.js";
 import safetyRoutes from "./routes/safety.js";
 import { cacheGet, cacheSet } from "./utils/cache.js";
 import { hashWatchToken } from "./utils/watchToken.js";
-
-const allowedOrigins = new Set(
-  [
-    "https://fixbuddy-ivory.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:8443",
-    "https://localhost",
-    "http://localhost",
-    "http://localhost:8081",
-    "capacitor://localhost",
-    "ionic://localhost",
-    ...String(env.clientOrigin)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  ].map((s) => s.replace(/\/$/, "")),
-);
-
-function isLocalDevOrigin(origin) {
-  if (env.isProduction) return false;
-  try {
-    const { hostname } = new URL(origin);
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "10.0.2.2") return true;
-    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
-    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 export function createApp() {
   const app = express();
@@ -64,7 +35,7 @@ export function createApp() {
   app.use(
     cors({
       origin(origin, cb) {
-        if (!origin || allowedOrigins.has(origin.replace(/\/$/, "")) || isLocalDevOrigin(origin)) {
+        if (isAllowedOrigin(origin)) {
           return cb(null, true);
         }
         cb(null, false);
@@ -76,8 +47,11 @@ export function createApp() {
     }),
   );
 
+  // Signature verification needs the exact bytes, so this precedes express.json.
+  app.post("/api/payments/webhook", express.raw({ type: "*/*", limit: "1mb" }), paymentWebhook);
+
   app.use((req, res, next) => {
-    const limit = req.path.startsWith("/api/upload") ? "8mb" : "1mb";
+    const limit = req.path.startsWith("/api/upload") ? "12mb" : "1mb";
     express.json({ limit })(req, res, next);
   });
   app.use(
@@ -113,7 +87,7 @@ export function createApp() {
       const { professionalPublic } = await import("./utils/serialize.js");
       const pack = await loadPassport(user);
       res.json({
-        profile: professionalPublic(user, { ...pack.stats, badges: pack.badges }),
+        profile: professionalPublic(user, { ...pack.stats, badges: pack.badges, skills: pack.skills }),
       });
     } catch {
       res.status(404).json({ message: "Professional not found" });
@@ -218,6 +192,7 @@ export function createApp() {
   app.use("/api/stats", auth, statsRoutes);
   app.use("/api/categories", categoryRoutes);
   app.use("/api/upload", auth, uploadRoutes);
+  app.use("/api/payments", auth, paymentRoutes);
   app.use("/api/team", auth, teamRoutes);
   app.use("/api/worker", auth, workerRoutes);
   app.use("/api/crews", auth, crewRoutes);

@@ -9,12 +9,13 @@ import { Notification } from "./models/Notification.js";
 import { Review } from "./models/Review.js";
 import { Category } from "./models/Category.js";
 import { Complaint } from "./models/Complaint.js";
-import { Transaction } from "./models/Transaction.js";
 import { AuditLog } from "./models/AuditLog.js";
 import { PlatformSettings } from "./models/PlatformSettings.js";
 import { WorkerLock } from "./models/WorkerLock.js";
 import { LedgerEntry } from "./models/LedgerEntry.js";
 import { buildLicense } from "./utils/license.js";
+import { LEDGER_TYPES, FINANCE_STATUS } from "./services/payments/config.js";
+import { rupeesToPaise } from "./services/payments/money.js";
 
 const AV = {
   rahul: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&h=80&fit=crop&auto=format",
@@ -45,7 +46,6 @@ async function run() {
     Review.deleteMany({}),
     Category.deleteMany({}),
     Complaint.deleteMany({}),
-    Transaction.deleteMany({}),
     AuditLog.deleteMany({}),
     PlatformSettings.deleteMany({}),
     WorkerLock.deleteMany({}),
@@ -446,11 +446,10 @@ async function run() {
     { code: "CMP-003", reporterId: priya._id, party: "customer", subject: "No show", body: "Worker did not arrive", status: "resolved" },
   ]);
 
-  await Transaction.insertMany([
-    { code: "TXN-1001", requestId: completed._id, fromId: customer._id, toId: worker._id, amount: 850, kind: "payment", status: "paid", note: "AC service" },
-    { code: "TXN-1002", requestId: completed._id, fromId: worker._id, toId: admin._id, amount: 85, kind: "commission", status: "paid", note: "10% platform fee" },
-    { code: "TXN-1003", requestId: completed._id, fromId: admin._id, toId: worker._id, amount: 765, kind: "payout", status: "paid", note: "Worker payout" },
-    { code: "TXN-1004", amount: 399, kind: "refund", status: "refunded", note: "Cancelled booking refund", fromId: admin._id, toId: priya._id },
+  await LedgerEntry.insertMany([
+    { code: "TXN-1001", requestId: completed._id, userId: customer._id, counterpartyId: worker._id, type: LEDGER_TYPES.JOB_PAYMENT, amountPaise: rupeesToPaise(850), status: FINANCE_STATUS.SIMULATED, note: "AC service" },
+    { code: "TXN-1002", requestId: completed._id, userId: worker._id, counterpartyId: admin._id, type: LEDGER_TYPES.COMMISSION, amountPaise: rupeesToPaise(85), status: FINANCE_STATUS.SIMULATED, note: "10% platform fee" },
+    { code: "TXN-1003", requestId: completed._id, userId: worker._id, counterpartyId: admin._id, type: LEDGER_TYPES.WORKER_EARNING, amountPaise: rupeesToPaise(765), status: FINANCE_STATUS.SIMULATED, note: "Worker payout" },
   ]);
 
   await AuditLog.insertMany([

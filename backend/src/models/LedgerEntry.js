@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
-import { FINANCIAL_MODE, FINANCE_STATUS, LEDGER_TYPES } from "../services/payments/config.js";
+import { FINANCIAL_MODE, FINANCE_STATUS, LEDGER_TYPES, LIVE_LEDGER_TYPES } from "../services/payments/config.js";
 
-const TYPES = Object.values(LEDGER_TYPES);
+const TYPES = [...Object.values(LEDGER_TYPES), ...Object.values(LIVE_LEDGER_TYPES)];
 const STATUSES = Object.values(FINANCE_STATUS);
 
 const ledgerSchema = new mongoose.Schema(

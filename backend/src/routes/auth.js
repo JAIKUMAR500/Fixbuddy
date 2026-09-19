@@ -4,7 +4,8 @@ import crypto from "node:crypto";
 import { User } from "../models/User.js";
 import { Otp } from "../models/Otp.js";
 import { Session } from "../models/Session.js";
-import { signToken, auth, forgetAuthUser, rememberAuthUser } from "../middleware/auth.js";
+import { signToken, auth, forgetAuthUser, rememberAuthUser, attachRefreshSecret, clearAuthCookies } from "../middleware/auth.js";
+import { hashOpaque, readRefreshToken } from "../middleware/authCookies.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { publicUser } from "../utils/serialize.js";
 import { isProviderAccount, normalizeSignupRole } from "../utils/roles.js";
@@ -56,8 +57,8 @@ router.post(
         ? { businessName: name, description: "", onboarded: false, available: true, services: [], serviceAreas: [], lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null }
         : undefined,
     });
-    const token = await signToken(user);
-    res.status(201).json({ token, user: publicUser(user.toObject()) });
+    const token = await signToken(user, res);
+    res.status(201).json(attachRefreshSecret(res, { token, user: publicUser(user.toObject()) }));
   })
 );
 
@@ -150,11 +151,11 @@ router.post(
       throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
     }
     await ensureUserCode(user);
-    const token = await signToken(user);
+    const token = await signToken(user, res);
     const lean = user.toObject();
     delete lean.passwordHash;
     rememberAuthUser(lean);
-    res.json({ token, user: publicUser(lean) });
+    res.json(attachRefreshSecret(res, { token, user: publicUser(lean) }));
   })
 );
 
@@ -172,6 +173,7 @@ router.post(
   asyncHandler(async (req, res) => {
     await Session.updateOne({ _id: req.sessionId, revokedAt: null }, { $set: { revokedAt: new Date() } });
     forgetAuthUser(req.userId);
+    clearAuthCookies(res);
     res.status(204).end();
   })
 );
@@ -182,6 +184,7 @@ router.post(
   asyncHandler(async (req, res) => {
     await Session.updateMany({ userId: req.userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
     forgetAuthUser(req.userId);
+    clearAuthCookies(res);
     res.status(204).end();
   })
 );
@@ -219,11 +222,41 @@ router.patch(
 );
 
 async function issueAuth(user, res, status = 200) {
-  const token = await signToken(user);
+  const token = await signToken(user, res);
   const lean = typeof user.toObject === "function" ? user.toObject() : user;
   delete lean.passwordHash;
-  res.status(status).json({ token, user: publicUser(lean) });
+  res.status(status).json(attachRefreshSecret(res, { token, user: publicUser(lean) }));
 }
+
+router.post(
+  "/refresh",
+  rateLimit({
+    windowMs: AUTH_LIMITS.login.windowMs,
+    max: AUTH_LIMITS.login.max,
+    key: (req) => `refresh:${clientKey(req)}`,
+    message: "Too many session refresh attempts. Try again later.",
+  }),
+  asyncHandler(async (req, res) => {
+    const raw = readRefreshToken(req);
+    if (!raw) throw httpError(401, "Session expired. Please sign in again.");
+    const session = await Session.findOne({
+      refreshHash: hashOpaque(raw),
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!session) throw httpError(401, "Session expired. Please sign in again.");
+    const user = await User.findById(session.userId);
+    if (!user || user.status === "suspended") throw httpError(401, "Session expired. Please sign in again.");
+    await ensureLoginLicense(user);
+    if (!hasValidLicense(user)) {
+      throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
+    }
+    session.revokedAt = new Date();
+    await session.save();
+    forgetAuthUser(String(user._id));
+    await issueAuth(user, res);
+  }),
+);
 
 router.post(
   "/forgot",

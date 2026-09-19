@@ -1,7 +1,11 @@
 import React from "react";
+import { useLocation } from "react-router-dom";
+import { View } from "./types";
 import { AppProvider, useApp } from "./api/AppContext";
+import { publicProfileCode } from "./api/routes";
 import { ADMIN_VIEWS, BUSINESS_VIEWS, CUSTOMER_VIEWS, WORKER_VIEWS, canAccessView, isBusiness, roleHome } from "./api/roles";
 import AppShell, { shellVariant } from "./components/AppShell";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ProfilePrompt from "./components/ProfilePrompt";
 import { LangProvider, useLang } from "./i18n/LangContext";
 
@@ -50,24 +54,30 @@ import FamilyWatch from "./pages/shared/FamilyWatch";
 import FindCrew from "./pages/customer/FindCrew";
 import PublicWorkerProfile from "./pages/PublicWorkerProfile";
 
-class RouteErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null };
+/** Home target keeps the role landing screen and the active-job focus lock intact. */
+function useHomeTarget() {
+  const { navigate, user } = useApp();
+  return React.useCallback(() => navigate(user ? roleHome(user) : "landing"), [navigate, user]);
+}
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
+/** Covers every screen, including the public views rendered before the app shell. */
+function AppBoundary({ children }: { children: React.ReactNode }) {
+  const goHome = useHomeTarget();
+  return (
+    <ErrorBoundary scope="app" onHome={goHome}>
+      {children}
+    </ErrorBoundary>
+  );
+}
 
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="p-8 max-w-lg">
-          <h1 className="text-xl font-bold font-display text-slate-900">This page could not load</h1>
-          <p className="text-sm text-slate-500 mt-2">Stay here and try another menu item, or refresh.</p>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+/** Per-view boundary: one broken page must not take down the shell navigation. */
+function RouteBoundary({ view, children }: { view: View; children: React.ReactNode }) {
+  const goHome = useHomeTarget();
+  return (
+    <ErrorBoundary key={view} scope="route" onHome={goHome}>
+      {children}
+    </ErrorBoundary>
+  );
 }
 
 function Shell() {
@@ -116,7 +126,7 @@ function Shell() {
 
   const wrap = (child: React.ReactNode) => (
     <AppShell variant={shellVariant(user)} navigate={navigate} currentView={view} user={user} onLogout={logout}>
-      <RouteErrorBoundary key={view}>{child}</RouteErrorBoundary>
+      <RouteBoundary view={view}>{child}</RouteBoundary>
       {user && !user.profileAsked && user.role !== "admin" ? <ProfilePrompt /> : null}
     </AppShell>
   );
@@ -219,22 +229,45 @@ function Shell() {
   return <Landing navigate={navigate} />;
 }
 
-function PublicProfileEntry() {
-  const userCode = window.location.pathname.split("/").filter(Boolean)[1] || "";
+function E2eCrashProbe() {
+  // Production builds compile this to `return null`. The throw is never shipped.
+  if (import.meta.env.PROD) return null;
+  const { search } = useLocation();
+  if (new URLSearchParams(search).get("e2eCrash") !== "1") return null;
+  throw new Error("FixBuddy E2E deliberate render failure");
+}
+
+function PublicProfileEntry({ userCode }: { userCode: string }) {
   return <PublicWorkerProfile userCode={userCode} />;
 }
 
+/** `/workers/:code` and `/pro/:code` render the standalone public profile. */
 function Root() {
-  const path = window.location.pathname;
-  if (path.startsWith("/workers/") || path.startsWith("/pro/")) return <PublicProfileEntry />;
-  return <Shell />;
+  const { pathname } = useLocation();
+  const code = publicProfileCode(pathname);
+  if (code) {
+    return (
+      <>
+        <E2eCrashProbe />
+        <PublicProfileEntry userCode={code} />
+      </>
+    );
+  }
+  return (
+    <>
+      <E2eCrashProbe />
+      <Shell />
+    </>
+  );
 }
 
 export default function App() {
   return (
     <LangProvider>
       <AppProvider>
-        <Root />
+        <AppBoundary>
+          <Root />
+        </AppBoundary>
       </AppProvider>
     </LangProvider>
   );

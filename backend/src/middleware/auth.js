@@ -5,12 +5,12 @@ import { User } from "../models/User.js";
 import { Session } from "../models/Session.js";
 import { httpError } from "../utils/asyncHandler.js";
 import { hasValidLicense } from "../utils/license.js";
+import { clearAuthCookies, hashOpaque, readAccessToken, setAuthCookies } from "./authCookies.js";
 
 /**
- * Cross-origin SPA (Vercel) + API (Render) keeps Bearer JWT in localStorage.
- * HttpOnly cookie migration would require SameSite=None credentials on every
- * fetch and would break existing clients; harden sessions instead of migrating.
- * Never log tokens.
+ * Dual auth: HttpOnly cookies (same-origin / first-party) plus Bearer JWT
+ * for Capacitor and cross-origin clients that cannot rely on third-party cookies.
+ * Never log tokens or refresh secrets.
  */
 
 const userCache = new Map();
@@ -30,30 +30,41 @@ export function forgetAuthUser(id) {
   if (id) userCache.delete(String(id));
 }
 
+export async function resolveAccessToken(explicitToken, cookieHeader) {
+  const token =
+    String(explicitToken || "").trim() ||
+    readAccessToken({ headers: { cookie: cookieHeader || "", authorization: "" } });
+  if (!token) return null;
+  const payload = jwt.verify(token, env.jwtSecret);
+  if (!payload.jti) return null;
+  const id = String(payload.sub);
+  const session = await Session.findOne({
+    userId: id,
+    tokenHash: hashTokenId(payload.jti),
+    revokedAt: null,
+    expiresAt: { $gt: new Date() },
+  }).lean();
+  if (!session) return null;
+  const cached = userCache.get(id);
+  let user = cached && Date.now() - cached.at < USER_TTL_MS ? cached.user : null;
+  if (!user) {
+    user = await User.findById(id).lean();
+    if (user) rememberAuthUser(user);
+  }
+  if (!user) return null;
+  return { user, session, payload };
+}
+
 export async function auth(req, res, next) {
   try {
-    const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+    const token = readAccessToken(req);
     if (!token) throw httpError(401, "Sign in required");
-    const payload = jwt.verify(token, env.jwtSecret);
-    if (!payload.jti) throw httpError(401, "Session is no longer valid. Please sign in again.");
-    const id = String(payload.sub);
-    const session = await Session.findOne({
-      userId: id,
-      tokenHash: hashTokenId(payload.jti),
-      revokedAt: null,
-      expiresAt: { $gt: new Date() },
-    }).lean();
-    if (!session) throw httpError(401, "Session is no longer valid. Please sign in again.");
-    const cached = userCache.get(id);
-    let user = cached && Date.now() - cached.at < USER_TTL_MS ? cached.user : null;
-    if (!user) {
-      user = await User.findById(id).lean();
-      if (user) rememberAuthUser(user);
-    }
-    if (!user) throw httpError(401, "Account not found");
+    const resolved = await resolveAccessToken(token, req.headers.cookie);
+    if (!resolved) throw httpError(401, "Session is no longer valid. Please sign in again.");
+    const { user, session } = resolved;
     if (user.status === "suspended") throw httpError(403, "Account suspended");
     if (!hasValidLicense(user)) throw httpError(403, "Login license expired or not assigned. Ask Super Admin to grant access.");
+    const id = String(user._id);
     req.user = user;
     req.userId = id;
     req.userCode = user.userCode || "";
@@ -82,17 +93,32 @@ export function requireRole(...roles) {
   };
 }
 
-export async function signToken(user) {
+export async function signToken(user, res) {
   const tokenId = crypto.randomBytes(32).toString("hex");
+  const refreshRaw = crypto.randomBytes(32).toString("hex");
   const token = jwt.sign({ sub: String(user._id), role: user.role, uid: user.userCode || "" }, env.jwtSecret, {
-    expiresIn: env.jwtExpires,
+    expiresIn: env.jwtAccessExpires,
     jwtid: tokenId,
   });
-  const decoded = jwt.decode(token);
   await Session.create({
     userId: user._id,
     tokenHash: hashTokenId(tokenId),
-    expiresAt: new Date(Number(decoded?.exp || 0) * 1000),
+    refreshHash: hashOpaque(refreshRaw),
+    expiresAt: new Date(Date.now() + env.jwtRefreshMs),
   });
+  if (res) {
+    setAuthCookies(res, token, refreshRaw);
+    res.locals.refreshToken = refreshRaw;
+  }
   return token;
 }
+
+export function attachRefreshSecret(res, payload) {
+  return {
+    ...payload,
+    refreshToken: res?.locals?.refreshToken || undefined,
+    cookieAuth: true,
+  };
+}
+
+export { clearAuthCookies };
