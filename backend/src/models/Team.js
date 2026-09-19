@@ -5,10 +5,13 @@ const memberSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, default: "", lowercase: true, trim: true },
     phone: { type: String, default: "" },
-    role: { type: String, enum: ["lead", "staff"], default: "staff" },
+    role: { type: String, enum: ["owner", "manager", "worker", "lead", "staff"], default: "worker" },
     groupId: { type: String, default: "" },
     status: { type: String, enum: ["pending", "active"], default: "pending" },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    invitedAt: { type: Date, default: null },
+    acceptedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

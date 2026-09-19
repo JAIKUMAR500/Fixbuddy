@@ -16,15 +16,15 @@ vi.mock("../../api/AppContext", () => ({
 }));
 
 vi.mock("../../api/realtime", () => ({
-  subscribeRealtime: () => () => {},
+  subscribeRealtime: () => () => { },
   subscribeConnection: (cb: (state: string) => void) => {
     cb("disconnected");
-    return () => {};
+    return () => { };
   },
   getRealtimeConnectionState: () => "disconnected",
   publishWorkerLocation: () => false,
   isRealtimeConnected: () => false,
-  joinRealtimeJob: () => {},
+  joinRealtimeJob: () => { },
 }));
 
 vi.mock("../../api/useWorkerGps", () => ({
@@ -43,6 +43,8 @@ vi.mock("../../api/client", async (importOriginal) => {
       ...actual.RequestAPI,
       currentJob: vi.fn(),
       verifyOtp,
+      collectPayment: vi.fn(),
+      customerComplete: vi.fn(),
     },
     ChatAPI: { ...actual.ChatAPI, open: vi.fn() },
     uploadImage: vi.fn(),
@@ -71,11 +73,14 @@ describe("ActiveJob OTP and payment states", () => {
   beforeEach(() => {
     role = "worker";
     verifyOtp.mockReset();
+    vi.mocked(RequestAPI.currentJob).mockReset();
+    vi.mocked(RequestAPI.collectPayment).mockReset();
+    vi.mocked(RequestAPI.customerComplete).mockReset();
   });
 
   it("asks the worker for the customer OTP after arrival", async () => {
     vi.mocked(RequestAPI.currentJob).mockResolvedValue({ request: job("arrived") } as never);
-    render(<ActiveJob navigate={() => {}} />);
+    render(<ActiveJob navigate={() => { }} />);
     expect(await screen.findByPlaceholderText(/4-digit otp/i)).toBeInTheDocument();
     await userEvent.type(screen.getByPlaceholderText(/4-digit otp/i), "1234");
     await userEvent.click(screen.getByRole("button", { name: /verify otp/i }));
@@ -87,7 +92,7 @@ describe("ActiveJob OTP and payment states", () => {
     vi.mocked(RequestAPI.currentJob).mockResolvedValue({
       request: job("arrived", { jobOtp: "4821" }),
     } as never);
-    render(<ActiveJob navigate={() => {}} />);
+    render(<ActiveJob navigate={() => { }} />);
     expect(await screen.findByText("4821")).toBeInTheDocument();
     expect(screen.getAllByText(/worker has arrived/i).length).toBeGreaterThan(0);
   });
@@ -106,10 +111,45 @@ describe("ActiveJob OTP and payment states", () => {
         provider: { name: "Ravi", rating: 4.9, avatar: "", verified: true, phone: "999" } as JobRequest["provider"],
       }),
     } as never);
-    render(<ActiveJob navigate={() => {}} />);
+    render(<ActiveJob navigate={() => { }} />);
     expect(await screen.findByText(/track your worker/i)).toBeInTheDocument();
     expect(screen.getByTestId("live-track-map")).toBeInTheDocument();
     expect(screen.getByText(/worker is on the way/i)).toBeInTheDocument();
     expect(screen.getAllByText(/8 min/).length).toBeGreaterThan(0);
+  });
+
+  it("shows collect amount and Find next job after worker collects payment", async () => {
+    const completed = job("completed", {
+      estimatedAmount: 800,
+      finance: {
+        settled: true,
+        jobPriceRupees: 800,
+        commissionRupees: 80,
+        workerNetRupees: 720,
+        commissionPercent: 10,
+      } as JobRequest["finance"],
+    });
+    vi.mocked(RequestAPI.currentJob).mockResolvedValue({ request: completed } as never);
+    vi.mocked(RequestAPI.collectPayment).mockImplementation(async () => {
+      vi.mocked(RequestAPI.currentJob).mockResolvedValue({ request: null } as never);
+      return { request: job("payment_collected") } as never;
+    });
+
+    const navigate = vi.fn();
+    render(<ActiveJob navigate={navigate} />);
+    expect(await screen.findByRole("button", { name: /Collect ₹800/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Collect ₹800/i }));
+    expect(await screen.findByTestId("payment-success")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Find next job/i })).toBeInTheDocument();
+  });
+
+  it("shows the agreed amount when the customer confirms completion", async () => {
+    role = "customer";
+    vi.mocked(RequestAPI.currentJob).mockResolvedValue({
+      request: job("completed", { estimatedAmount: 1200 }),
+    } as never);
+    render(<ActiveJob navigate={() => {}} />);
+    expect(await screen.findByText(/Confirm amount/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Confirm Completion · ₹1,200/i })).toBeInTheDocument();
   });
 });

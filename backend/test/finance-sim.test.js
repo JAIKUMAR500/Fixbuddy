@@ -14,10 +14,13 @@ import { httpError } from "../src/utils/asyncHandler.js";
 import {
   LEDGER_TYPES,
   commissionPaise,
+  commissionContextOf,
+  commissionPercentForRequest,
   netPaise,
   paiseToRupees,
   rupeesToPaise,
 } from "../src/services/payments/index.js";
+import { assertWorkPhotoUploadAllowed, canUploadWorkPhotos } from "../src/utils/workPhotos.js";
 import { DevelopmentPaymentService } from "../src/services/payments/DevelopmentPaymentService.js";
 import { FutureProductionPaymentService } from "../src/services/payments/FutureProductionPaymentService.js";
 
@@ -29,6 +32,35 @@ test("integer paise conversion never uses float rupees for commission", () => {
   assert.equal(netPaise(100000, 10000), 90000);
   assert.equal(commissionPaise(100000, 0), 0);
   assert.equal(netPaise(100, 1000), 0);
+  // ₹2000 @ 8%
+  assert.equal(commissionPaise(200000, 8), 16000);
+  assert.equal(netPaise(200000, 16000), 184000);
+  // ₹5000 @ 10%
+  assert.equal(commissionPaise(500000, 10), 50000);
+  assert.equal(netPaise(500000, 50000), 450000);
+});
+
+test("commission context picks demo rates without mutating historical finance", () => {
+  const settings = {
+    commissionPercent: 10,
+    commissionRates: { independent: 10, crew: 10, businessMarketplace: 8, businessManaged: 8 },
+  };
+  assert.equal(commissionContextOf({}), "independent");
+  assert.equal(commissionContextOf({ crewId: "x" }), "crew");
+  assert.equal(commissionContextOf({ assignmentMode: "business_team" }), "businessManaged");
+  assert.equal(commissionContextOf({ postedByRole: "business" }), "businessMarketplace");
+  assert.equal(commissionPercentForRequest({ postedByRole: "business" }, settings), 8);
+  assert.equal(commissionPercentForRequest({ assignmentMode: "crew" }, settings), 10);
+});
+
+test("work photo upload gates and crew authorization", () => {
+  const doc = { status: "in_progress", providerId: "lead", crewMemberIds: ["a", "b"] };
+  assert.equal(canUploadWorkPhotos("lead", doc), true);
+  assert.equal(canUploadWorkPhotos("a", doc), true);
+  assert.equal(canUploadWorkPhotos("stranger", doc), false);
+  assert.equal(assertWorkPhotoUploadAllowed({ status: "matching" }, "before").ok, false);
+  assert.equal(assertWorkPhotoUploadAllowed({ status: "in_progress" }, "during").ok, true);
+  assert.equal(assertWorkPhotoUploadAllowed({ status: "cancelled" }, "after").ok, false);
 });
 
 test("negative and invalid money inputs clamp to zero", () => {
@@ -80,7 +112,19 @@ async function makeWorker() {
     email: `w-${n}@fin.test`,
     passwordHash: "x",
     role: "worker",
-    provider: { available: true, businessName: `Work ${n}` },
+    provider: {
+      available: true,
+      businessName: `Work ${n}`,
+      category: "AC Repair & Service",
+      skills: [
+        { name: "AC Repair & Service" },
+        { name: "Plumbing" },
+        { name: "Electrical" },
+        { name: "Painting" },
+        { name: "Cleaning" },
+        { name: "Carpentry" },
+      ],
+    },
   });
 }
 

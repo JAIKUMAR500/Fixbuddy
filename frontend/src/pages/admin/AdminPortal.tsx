@@ -49,6 +49,8 @@ type Overview = {
   activeJobs: number;
   completedJobs: number;
   revenue: number;
+  revenueToday?: number;
+  revenueTodayTxns?: number;
   customerGrowth: number;
   byStatus: Record<string, number>;
   recentActivity: { id: string; text: string; at: string }[];
@@ -267,6 +269,25 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
 
       {view === "admin" && (
         <>
+          <button
+            type="button"
+            onClick={() => {
+              // Navigate via hash/view if parent supports it — fall back to transactions detail below
+              const el = document.getElementById("admin-revenue-detail");
+              if (el) el.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="w-full text-left"
+          >
+            <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white border-0 shadow-lg">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">FixBuddy Revenue</p>
+              <p className="font-display text-3xl font-bold mt-2">{money(overview?.revenueToday ?? overview?.revenue ?? 0)}</p>
+              <p className="text-sm text-slate-300 mt-1">
+                Today · {overview?.revenueTodayTxns ?? 0} completed transactions
+              </p>
+              <p className="text-[11px] text-amber-300 mt-3 font-semibold">DEMO FINANCIAL MODE · Simulated commission only</p>
+              <p className="text-xs text-slate-400 mt-1">All-time commission {money(overview?.revenue || 0)} · Tap for details ↓</p>
+            </Card>
+          </button>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Total Customers" value={overview?.customers} hint={`+${overview?.customerGrowth || 0}% from last week`} icon={<Users className="w-5 h-5" />} loading={loading} />
             <Kpi label="Total Providers" value={overview?.businesses} hint="Business job creators" icon={<ShieldCheck className="w-5 h-5" />} loading={loading} />
@@ -275,9 +296,9 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
             <Kpi label="Total Requests" value={overview?.requests} loading={loading} />
             <Kpi label="Active Jobs" value={overview?.activeJobs} loading={loading} />
             <Kpi label="Completed Jobs" value={overview?.completedJobs} loading={loading} />
-            <Kpi label="Platform Revenue" value={money(overview?.revenue || 0)} hint="Simulated commission only" loading={loading} />
           </div>
           <SimulatedMoneyBanner />
+          <AdminRevenueDetail />
           <div className="grid lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <h2 className="font-semibold mb-1">Jobs trend</h2>
@@ -872,6 +893,110 @@ export default function AdminPortal({ view }: { view: View; embedded?: boolean }
           <LogOut className="w-4 h-4" /> Sign Out
         </button>
       )}
+    </div>
+  );
+}
+
+function AdminRevenueDetail() {
+  const [range, setRange] = useState<"today" | "week" | "month" | "all">("today");
+  const [data, setData] = useState<Awaited<ReturnType<typeof AdminAPI.revenue>> | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    setErr("");
+    void AdminAPI.revenue(`?range=${range}`)
+      .then(setData)
+      .catch((e) => setErr(e instanceof Error ? e.message : "Could not load revenue"));
+  }, [range]);
+
+  const summary = data?.periods?.[range] || data?.summary;
+
+  return (
+    <div id="admin-revenue-detail" className="space-y-4">
+      <Card padding="md" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">Demo commission revenue</h2>
+            <p className="text-xs text-amber-700 font-semibold mt-0.5">DEMO FINANCIAL MODE — no real money</p>
+          </div>
+          <div className="flex gap-1">
+            {(["today", "week", "month", "all"] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize ${range === r ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`}
+              >
+                {r === "all" ? "All time" : r === "week" ? "This week" : r === "month" ? "This month" : "Today"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {err && <p className="text-sm text-red-600">{err}</p>}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Gross Transaction Value</p>
+            <p className="text-lg font-bold">{money(summary?.gross || 0)}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-3">
+            <p className="text-[11px] text-emerald-700">FixBuddy Commission</p>
+            <p className="text-lg font-bold text-emerald-800">{money(summary?.commission || 0)}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Provider Earnings</p>
+            <p className="text-lg font-bold">{money(summary?.providerNet || 0)}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Completed Transactions</p>
+            <p className="text-lg font-bold">
+              {"transactions" in (summary || {})
+                ? (summary as { transactions: number }).transactions
+                : data?.summary?.completedTransactions ?? 0}
+            </p>
+          </div>
+        </div>
+        {data?.summary?.pendingCommission ? (
+          <p className="text-xs text-amber-700">Pending commission jobs: {data.summary.pendingCommission}</p>
+        ) : null}
+      </Card>
+      <Card padding="none">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="font-semibold">Commission transactions</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-slate-500 bg-slate-50">
+              <tr>
+                <th className="px-4 py-2">Request</th>
+                <th className="px-4 py-2">Provider</th>
+                <th className="px-4 py-2">Gross</th>
+                <th className="px-4 py-2">Commission</th>
+                <th className="px-4 py-2">Net</th>
+                <th className="px-4 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.transactions || []).map((t) => (
+                <tr key={t.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2 font-mono text-xs">{t.requestCode || "—"}</td>
+                  <td className="px-4 py-2">{t.providerName}</td>
+                  <td className="px-4 py-2">{money(t.gross)}</td>
+                  <td className="px-4 py-2">{money(t.commission)}</td>
+                  <td className="px-4 py-2">{money(t.net)}</td>
+                  <td className="px-4 py-2 capitalize">{t.status}</td>
+                </tr>
+              ))}
+              {!data?.transactions?.length && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                    No commission records for this period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

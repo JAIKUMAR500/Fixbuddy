@@ -54,8 +54,8 @@ export default function FindCrew({ navigate }: { navigate: (v: View) => void }) 
     <div className="p-4 lg:p-6 space-y-5 pb-24 max-w-xl">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Multi-worker job</p>
-        <h1 className="font-display text-2xl font-bold text-slate-900">Find a team</h1>
-        <p className="text-sm text-slate-500 mt-1">Showing crews with at least {needed} active members. Your existing single-worker booking still works as usual.</p>
+        <h1 className="font-display text-2xl font-bold text-slate-900">Find a crew</h1>
+        <p className="text-sm text-slate-500 mt-1">Showing crews with at least {needed} active members. Crews are independent workers collaborating — not a Business Team.</p>
       </div>
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>}
       {msg && <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">{msg}</p>}
@@ -84,14 +84,14 @@ export default function FindCrew({ navigate }: { navigate: (v: View) => void }) 
               ))}
             </div>
             <Button fullWidth loading={busy === c.id} onClick={() => void request(c.id)}>
-              Request this team
+              Request this crew
             </Button>
           </Card>
         ))}
         {!crews.length && (
           <EmptyState
             icon="👥"
-            title="No eligible teams yet"
+            title="No eligible crews yet"
             description="You can still book a single worker from Find a Service."
             actionLabel="Find a worker"
             onAction={() => navigate("create-request")}

@@ -92,7 +92,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
 
   const goNext = async () => {
     if (submitting) return;
-    if (step < 5) {
+    if (step < 6) {
       setStep(step + 1);
       return;
     }
@@ -223,15 +223,16 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
             <div className="flex-1">
               <p className="text-xs text-slate-500">{isBiz ? "Post a Job" : "Create Request"}</p>
               <p className="font-semibold text-slate-900 text-sm">
-                {step === 1 && "What do you need?"}
-                {step === 2 && "Choose Category"}
-                {step === 3 && "Your Location"}
-                {step === 4 && "Time & amount"}
-                {step === 5 && "Review Request"}
+                {step === 1 && "Service"}
+                {step === 2 && "Description"}
+                {step === 3 && "Location"}
+                {step === 4 && "When"}
+                {step === 5 && "Budget"}
+                {step === 6 && "Review & Post"}
               </p>
             </div>
           </div>
-          <StepIndicator current={step} total={5} />
+          <StepIndicator current={step} total={6} />
         </div>
       </header>
 
@@ -240,9 +241,53 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
         {step === 1 && (
           <div className="space-y-6 animate-slide-up">
             <div>
-              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2" style={{ fontFamily: "Outfit, sans-serif" }}>
-                Tell us what you need.
-              </h2>
+              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2">What service do you need?</h2>
+              <p className="text-slate-500 text-sm">We match available workers from this list.</p>
+            </div>
+            <div className="space-y-3">
+              {categories.map((cat) => (
+                <button
+                  key={cat.name}
+                  type="button"
+                  onClick={() => setCategory(cat.name)}
+                  className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                    category === cat.name ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"
+                  }`}
+                >
+                  <span className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-700 flex items-center justify-center flex-shrink-0">
+                    <CategoryIcon icon={cat.icon} className="w-6 h-6" />
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900">{cat.name}</p>
+                  </div>
+                  {category === cat.name && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCategory("Other")}
+                className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                  category === "Other" ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"
+                }`}
+              >
+                <span className="w-12 h-12 rounded-2xl bg-sky-50 text-2xl flex items-center justify-center">+</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-slate-900">Other</p>
+                  <p className="text-xs text-slate-500">Describe the service you need</p>
+                </div>
+                {category === "Other" && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
+              </button>
+              {!categories.length && category !== "Other" && (
+                <Input label="Category" placeholder="Type a category" value={category} onChange={(e) => setCategory(e.target.value)} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-6 animate-slide-up">
+            <div>
+              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2">Describe the job</h2>
               <p className="text-slate-500 text-sm">Type it, record a voice note, and add photos of the problem.</p>
             </div>
             <Textarea
@@ -266,16 +311,27 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                 id="job-photos"
                 onChange={(e) => void addPhotos(e.target.files)}
               />
-              <label htmlFor="job-photos" className="flex items-center justify-center gap-2 min-h-14 p-4 border-2 border-dashed border-sky-200 rounded-2xl text-sm font-semibold text-slate-600 hover:border-sky-400 hover:text-sky-600 cursor-pointer">
+              <label
+                htmlFor="job-photos"
+                className="flex items-center justify-center gap-2 min-h-14 p-4 border-2 border-dashed border-sky-200 rounded-2xl text-sm font-semibold text-slate-600 hover:border-sky-400 hover:text-sky-600 cursor-pointer"
+              >
                 {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Image className="w-5 h-5" />}
-                {uploading ? "Uploading…" : "Add photos (multiple)"}
+                {uploading ? "Uploading…" : "+ Add Photo"}
               </label>
+              <p className="text-xs text-slate-500 mt-2">Photos help workers understand the job before accepting.</p>
               {photos.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
                   {photos.map((src) => (
                     <div key={src} className="relative">
                       <button type="button" onClick={() => setPreview(src)} className="block w-full">
-                        <img src={mediaUrl(src)} alt="" className="w-full h-36 sm:h-40 rounded-2xl object-cover border border-slate-200 bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.3"; }} />
+                        <img
+                          src={mediaUrl(src)}
+                          alt=""
+                          className="w-full h-36 sm:h-40 rounded-2xl object-cover border border-slate-200 bg-slate-100"
+                          onError={(e) => {
+                            e.currentTarget.style.opacity = "0.3";
+                          }}
+                        />
                       </button>
                       <button
                         type="button"
@@ -287,60 +343,6 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-6 animate-slide-up">
-            <div>
-              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2" style={{ fontFamily: "Outfit, sans-serif" }}>
-                Choose a category.
-              </h2>
-              <p className="text-slate-500 text-sm">We match available workers from this list.</p>
-            </div>
-            <div className="space-y-3">
-              {categories.map((cat) => (
-                <button
-                  key={cat.name}
-                  onClick={() => setCategory(cat.name)}
-                  className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${category === cat.name
-                    ? "border-sky-500 bg-sky-50"
-                    : "border-sky-100 bg-white hover:border-sky-300"
-                    }`}
-                >
-                  <span className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-700 flex items-center justify-center flex-shrink-0">
-                    <CategoryIcon icon={cat.icon} className="w-6 h-6" />
-                  </span>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900">{cat.name}</p>
-                  </div>
-                  {category === cat.name && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setCategory("Other")}
-                className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${category === "Other" ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"}`}
-              >
-                <span className="w-12 h-12 rounded-2xl bg-sky-50 text-2xl flex items-center justify-center">➕</span>
-                <div className="flex-1">
-                  <p className="font-semibold text-slate-900">Other</p>
-                  <p className="text-xs text-slate-500">Describe the service you need</p>
-                </div>
-                {category === "Other" && <CheckCircle className="w-6 h-6 text-sky-600 flex-shrink-0" />}
-              </button>
-              {category === "Other" && (
-                <textarea
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="I need a technician to repair..."
-                  className="w-full min-h-24 rounded-2xl border border-sky-200 p-3 text-sm"
-                />
-              )}
-              {!categories.length && category !== "Other" && (
-                <Input label="Category" placeholder="Type a category" value={category} onChange={(e) => setCategory(e.target.value)} />
               )}
             </div>
           </div>
@@ -384,18 +386,18 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
         {step === 4 && (
           <div className="space-y-5 animate-slide-up">
             <div>
-              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2" style={{ fontFamily: "Outfit, sans-serif" }}>
-                When, and how much?
-              </h2>
-              <p className="text-slate-500 text-sm">Set a start time and the amount you want to pay. Workers see this and can reply with a quote.</p>
+              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2">When do you need this?</h2>
+              <p className="text-slate-500 text-sm">ASAP, today, or a scheduled time.</p>
             </div>
             <div className="space-y-3">
               {TIMINGS.map((t) => (
                 <button
                   key={t.id}
+                  type="button"
                   onClick={() => setTiming(t.id)}
-                  className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${timing === t.id ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"
-                    }`}
+                  className={`w-full min-h-16 flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                    timing === t.id ? "border-sky-500 bg-sky-50" : "border-sky-100 bg-white hover:border-sky-300"
+                  }`}
                 >
                   <span className="text-2xl">{t.icon}</span>
                   <span className="font-semibold text-slate-800">{t.label}</span>
@@ -409,6 +411,15 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                 <Input label="Time" type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)} />
               </div>
             )}
+          </div>
+        )}
+
+        {step === 5 && (
+          <div className="space-y-5 animate-slide-up">
+            <div>
+              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2">Budget</h2>
+              <p className="text-slate-500 text-sm">Set the amount you want to pay. Workers see this and can reply with a quote.</p>
+            </div>
             <Input
               label="Offered amount (₹)"
               type="number"
@@ -426,28 +437,27 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
           </div>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <div className="space-y-5 animate-slide-up">
             <div>
-              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2" style={{ fontFamily: "Outfit, sans-serif" }}>
-                Review your request.
-              </h2>
+              <h2 className="font-display text-2xl font-bold text-slate-900 mb-2">Review & Post</h2>
               <p className="text-slate-500 text-sm">Check all details before submitting.</p>
             </div>
             <Card padding="lg" className="space-y-4">
               {[
-                { label: "Problem", value: desc || "—", editStep: 1 },
-                { label: "Category", value: category || "—", editStep: 2 },
+                { label: "Service", value: category || "—", editStep: 1 },
+                { label: "Description", value: desc || "—", editStep: 2 },
                 { label: "Location", value: [address, area, city].filter(Boolean).join(", ") || "—", editStep: 3 },
-                { label: "Start time", value: scheduledLabel || "—", editStep: 4 },
-                { label: "Amount", value: amount ? `₹${amount}` : "Not set", editStep: 4 },
+                { label: "When", value: scheduledLabel || "—", editStep: 4 },
+                { label: "Budget", value: amount ? `₹${amount}` : "Not set", editStep: 5 },
+                { label: "Photos", value: photos.length ? `${photos.length} photo(s)` : "None", editStep: 2 },
               ].map((row) => (
                 <div key={row.label} className="flex items-start justify-between gap-3 pb-4 border-b border-sky-50 last:border-0 last:pb-0">
                   <div className="flex-1">
                     <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-1">{row.label}</p>
                     <p className="text-sm text-slate-800 font-medium">{row.value}</p>
                   </div>
-                  <button onClick={() => setStep(row.editStep)} className="p-3 rounded-lg hover:bg-sky-50 text-sky-600 min-w-11 min-h-11">
+                  <button type="button" onClick={() => setStep(row.editStep)} className="p-3 rounded-lg hover:bg-sky-50 text-sky-600 min-w-11 min-h-11">
                     <Edit2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -456,16 +466,31 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
               {photos.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   {photos.map((src) => (
-                    <img key={src} src={mediaUrl(src)} alt="" className="h-28 w-full rounded-xl object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.opacity = "0.3"; }} />
+                    <img
+                      key={src}
+                      src={mediaUrl(src)}
+                      alt=""
+                      className="h-28 w-full rounded-xl object-cover bg-slate-100"
+                      onError={(e) => {
+                        e.currentTarget.style.opacity = "0.3";
+                      }}
+                    />
                   ))}
                 </div>
               )}
               <label className="flex items-center justify-between gap-3 pt-2">
-                <span className="text-sm font-medium text-slate-800">Need a team (2+ workers)</span>
+                <span className="text-sm font-medium text-slate-800">Need a crew (2+ workers)</span>
                 <input type="checkbox" className="accent-brand w-5 h-5" checked={needTeam} onChange={(e) => setNeedTeam(e.target.checked)} />
               </label>
               {needTeam && (
-                <Input label="Workers required" type="number" min={2} max={12} value={String(workersRequired)} onChange={(e) => setWorkersRequired(Number(e.target.value || 2))} />
+                <Input
+                  label="Workers required"
+                  type="number"
+                  min={2}
+                  max={12}
+                  value={String(workersRequired)}
+                  onChange={(e) => setWorkersRequired(Number(e.target.value || 2))}
+                />
               )}
             </Card>
           </div>
@@ -487,15 +512,15 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
             onClick={() => void goNext()}
             loading={submitting}
             disabled={
-              (step === 1 && !desc.trim() && !voiceNote) ||
-              (step === 2 && !category) ||
+              (step === 1 && !category) ||
+              (step === 2 && !desc.trim() && !voiceNote) ||
               (step === 4 && !timing) ||
               (step === 4 && timing === "custom" && !customDate)
             }
           >
-            {step === 5 ? (needTeam ? "Find a team" : "Find nearby workers") : "Continue"}
-            {step !== 5 && <ArrowRight className="w-5 h-5" />}
-            {step === 5 && <IndianRupee className="w-5 h-5" />}
+            {step === 6 ? (needTeam ? "Find a crew" : "Post Job") : "Continue"}
+            {step !== 6 && <ArrowRight className="w-5 h-5" />}
+            {step === 6 && <IndianRupee className="w-5 h-5" />}
           </Button>
         </div>
       </div>

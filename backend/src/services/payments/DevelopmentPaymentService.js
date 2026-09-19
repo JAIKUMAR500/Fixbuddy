@@ -14,10 +14,15 @@ import {
   FINANCE_STATUS,
   LEDGER_TYPES,
   SIMULATION_LABEL,
-  commissionPercentFrom,
+  commissionContextOf,
+  commissionPercentForRequest,
   travelCompensationPaise,
 } from "./config.js";
 import { commissionPaise, netPaise, paiseToRupees, rupeesToPaise } from "./money.js";
+
+function commissionContextHint(request) {
+  return commissionContextOf(request);
+}
 
 function jobPricePaiseOf(request) {
   const quoted = rupeesToPaise(request.workerQuote || request.estimatedAmount || 0);
@@ -94,7 +99,12 @@ export class DevelopmentPaymentService extends PaymentService {
 
   quote(request, settings) {
     const jobPrice = jobPricePaiseOf(request);
-    const percent = commissionPercentFrom(settings);
+    // Prefer already-snapshotted rate on settled/partial finance for immutability.
+    const stored = Math.trunc(Number(request.finance?.commissionPercent) || 0);
+    const percent =
+      request.finance?.settled && stored > 0
+        ? stored
+        : commissionPercentForRequest(request, settings);
     const commission = commissionPaise(jobPrice, percent);
     const net = netPaise(jobPrice, commission);
     return {
@@ -103,6 +113,7 @@ export class DevelopmentPaymentService extends PaymentService {
       commissionPaise: commission,
       workerGrossPaise: jobPrice,
       workerNetPaise: net,
+      context: commissionContextHint(request),
     };
   }
 

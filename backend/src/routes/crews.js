@@ -24,6 +24,12 @@ const router = Router();
 
 router.param("id", paramObjectId("id"));
 
+async function notifyManySafe(ids, payload) {
+  for (const id of ids) {
+    await notify(id, payload).catch(() => { });
+  }
+}
+
 async function hydrate(crew) {
   const ids = (crew.members || []).map((m) => m.userId).filter(Boolean);
   const users = await User.find({ _id: { $in: ids } })
@@ -40,7 +46,7 @@ function memberOf(crew, userId) {
 function requireLeader(crew, userId) {
   const m = memberOf(crew, userId);
   if (!m || m.role !== "leader" || m.status !== "active") {
-    const err = httpError(403, "Only the team leader can do this");
+    const err = httpError(403, "Only the crew lead can do this");
     throw err;
   }
 }
@@ -73,16 +79,16 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!isSeeker(req.user.role)) throw httpError(403, "Workers only");
     const name = String(req.body.name || "").trim();
-    if (!name) throw httpError(400, "Team name is required");
+    if (!name) throw httpError(400, "Crew name is required");
     const existing = await Crew.findOne({ leaderId: req.userId, status: "active" });
-    if (existing) throw httpError(409, "You already lead a team. Open it from My Team.");
+    if (existing) throw httpError(409, "You already lead a crew. Open it from My Crews.");
     const maxMembers = Math.min(20, Math.max(2, Number(req.body.maxMembers || 6)));
     const skills = Array.isArray(req.body.skills)
       ? req.body.skills.map(String)
       : String(req.body.skills || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     const doc = await Crew.create({
       name,
       description: String(req.body.description || "").slice(0, 400),
@@ -187,7 +193,7 @@ router.post(
     await crew.save();
     await notify(workerId, {
       type: "info",
-      text: `${crew.name} invited you to join their FixBuddy team`,
+      text: `${req.user.name || "A worker"} invited you to join ${crew.name}.`,
     });
     res.status(201).json({ crew: await hydrate(crew) });
   })
@@ -225,15 +231,105 @@ router.delete(
   "/:id/members/:memberId",
   asyncHandler(async (req, res) => {
     const crew = await Crew.findById(req.params.id);
-    if (!crew) throw httpError(404, "Team not found");
+    if (!crew) throw httpError(404, "Crew not found");
     requireLeader(crew, req.userId);
     const m = crew.members.id(req.params.memberId) || memberOf(crew, req.params.memberId);
     if (!m) throw httpError(404, "Member not found");
-    if (m.role === "leader") throw httpError(400, "The leader cannot be removed");
+    if (m.role === "leader") throw httpError(400, "The crew lead cannot be removed");
+    const locked = await WorkerLock.findOne({ userId: m.userId }).lean();
+    if (locked) {
+      const job = await Request.findById(locked.jobId).select("crewId status").lean();
+      if (job && String(job.crewId) === String(crew._id) && isEngagedJobStatus(job.status)) {
+        throw httpError(409, "This member is on an active crew job. Finish or reassign the job first.");
+      }
+    }
     crew.members = crew.members.filter((x) => String(x._id) !== String(m._id) && String(x.userId) !== String(m.userId));
     await crew.save();
     await notify(m.userId, { type: "info", text: `You were removed from ${crew.name}` });
     res.json({ crew: await hydrate(crew) });
+  })
+);
+
+/** Member leaves crew — keeps Worker account, history, passport, reviews. */
+router.post(
+  "/:id/leave",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const crew = await Crew.findById(req.params.id);
+    if (!crew) throw httpError(404, "Crew not found");
+    const m = memberOf(crew, req.userId);
+    if (!m) throw httpError(404, "You are not a member of this crew");
+    if (m.role === "leader") throw httpError(400, "Crew lead cannot leave. Transfer lead or dissolve the crew first.");
+    const locked = await WorkerLock.findOne({ userId: req.userId }).lean();
+    if (locked) {
+      const job = await Request.findById(locked.jobId).select("crewId status").lean();
+      if (job && String(job.crewId) === String(crew._id) && isEngagedJobStatus(job.status)) {
+        throw httpError(409, "You are assigned to an active crew job. Finish it before leaving the crew.");
+      }
+    }
+    crew.members = crew.members.filter((x) => String(x.userId) !== String(req.userId));
+    await crew.save();
+    await notify(crew.leaderId, { type: "info", text: `${req.user.name} left ${crew.name}` });
+    res.json({ crew: await hydrate(crew), left: true });
+  })
+);
+
+/** Transfer crew lead to an active member. Previous lead becomes a member. */
+router.post(
+  "/:id/transfer-lead",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const crew = await Crew.findById(req.params.id);
+    if (!crew) throw httpError(404, "Crew not found");
+    requireLeader(crew, req.userId);
+    const nextId = String(req.body.userId || req.body.memberUserId || "");
+    if (!nextId) throw httpError(400, "Pick an active member to become crew lead");
+    if (nextId === String(req.userId)) throw httpError(400, "You are already the crew lead");
+
+    const activeJob = await Request.findOne({
+      crewId: crew._id,
+      status: { $in: ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"] },
+    }).lean();
+    if (activeJob) {
+      throw httpError(409, "Finish the active crew job before transferring lead.");
+    }
+
+    const next = memberOf(crew, nextId);
+    if (!next || next.status !== "active") throw httpError(400, "New lead must be an active crew member");
+
+    const prev = memberOf(crew, req.userId);
+    if (prev) prev.role = "member";
+    next.role = "leader";
+    crew.leaderId = next.userId;
+    await crew.save();
+    await notify(next.userId, { type: "success", text: `You are now the lead of ${crew.name}` });
+    res.json({ crew: await hydrate(crew) });
+  })
+);
+
+/** Dissolve crew — removes memberships only. Worker accounts stay intact. */
+router.post(
+  "/:id/dissolve",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const crew = await Crew.findById(req.params.id);
+    if (!crew) throw httpError(404, "Crew not found");
+    requireLeader(crew, req.userId);
+
+    const activeJob = await Request.findOne({
+      crewId: crew._id,
+      status: { $in: ["accepted", "scheduled", "on_the_way", "arrived", "otp_verified", "in_progress", "completed"] },
+    }).lean();
+    if (activeJob) {
+      throw httpError(409, "Finish or cancel the active crew job before dissolving the crew.");
+    }
+
+    const memberIds = (crew.members || []).map((m) => m.userId).filter((id) => String(id) !== String(req.userId));
+    crew.status = "suspended";
+    crew.members = [{ userId: crew.leaderId, role: "leader", status: "active", sharePercent: 0 }];
+    await crew.save();
+    await notifyManySafe(memberIds, { type: "info", text: `${crew.name} was dissolved by the crew lead.` });
+    res.json({ ok: true, dissolved: true, crew: await hydrate(crew) });
   })
 );
 
@@ -274,27 +370,33 @@ router.post(
     requireLeader(crew, req.userId);
     const jobId = req.params.jobId;
     const current = await Request.findById(jobId);
-    if (!current || String(current.crewId) !== String(crew._id)) throw httpError(404, "Team job not found");
+    if (!current) throw httpError(404, "Job not found");
+    if (current.crewId && String(current.crewId) !== String(crew._id)) {
+      throw httpError(409, "This job is reserved for another crew");
+    }
     if (req.body.reject) {
-      current.crewId = null;
-      current.timeline.push({ status: current.status, note: `${crew.name} declined the team job`, at: new Date() });
-      await current.save();
-      await notify(current.customerId, { type: "info", text: `${crew.name} cannot take this team job`, requestId: current._id });
+      if (String(current.crewId) === String(crew._id)) {
+        current.crewId = null;
+        current.timeline.push({ status: current.status, note: `${crew.name} declined the crew job`, at: new Date() });
+        await current.save();
+      }
+      await notify(current.customerId, { type: "info", text: `${crew.name} cannot take this crew job`, requestId: current._id });
       return res.json({ ok: true, rejected: true });
     }
     if (String(current.providerId || "") === String(crew.leaderId) && isEngagedJobStatus(current.status)) {
       const members = [crew.leaderId, ...(current.crewMemberIds || [])];
-      await Promise.all(members.map((id) => healWorkerLock(id, current._id).catch(() => {})));
+      await Promise.all(members.map((id) => healWorkerLock(id, current._id).catch(() => { })));
       return res.json({ ok: true });
     }
-    if (!PENDING_JOB_STATUSES.includes(current.status) || current.providerId) {
+    if (!PENDING_JOB_STATUSES.includes(current.status) || (current.providerId && String(current.providerId) !== String(crew.leaderId))) {
       throw httpError(409, "This job is no longer available");
     }
     const ids = (req.body.memberIds || []).map(String);
     const activeIds = crew.members.filter((m) => m.status === "active").map((m) => String(m.userId));
     const assigned = ids.filter((id) => activeIds.includes(id));
     if (!assigned.includes(String(crew.leaderId))) assigned.unshift(String(crew.leaderId));
-    if (assigned.length < (current.workersRequired || 1)) throw httpError(400, "Assign enough team members for this job");
+    const needed = Math.max(1, current.workersRequired || 1);
+    if (assigned.length < needed) throw httpError(400, "Assign enough crew members for this job");
 
     const locks = await acquireWorkerLocks(assigned, jobId);
     let taken;
@@ -302,16 +404,26 @@ router.post(
       taken = await Request.findOneAndUpdate(
         {
           _id: jobId,
-          crewId: crew._id,
           status: { $in: PENDING_JOB_STATUSES },
-          $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: crew.leaderId }],
+          $or: [
+            { providerId: null },
+            { providerId: { $exists: false } },
+            { providerId: crew.leaderId },
+          ],
+          $and: [
+            {
+              $or: [{ crewId: null }, { crewId: { $exists: false } }, { crewId: crew._id }],
+            },
+          ],
         },
         {
           $set: {
             providerId: crew.leaderId,
+            crewId: crew._id,
             crewMemberIds: assigned,
             status: "accepted",
             acceptedAt: new Date(),
+            assignmentMode: "crew",
           },
           $push: { timeline: { status: "accepted", note: `${crew.name} accepted. ${assigned.length} workers assigned.`, at: new Date() } },
         },
@@ -328,7 +440,7 @@ router.post(
     }
     await notify(taken.customerId, {
       type: "success",
-      text: `${crew.name} accepted your team job`,
+      text: `${crew.name} accepted your job — a crew is on the way`,
       requestId: taken._id,
     });
     for (const id of assigned) {

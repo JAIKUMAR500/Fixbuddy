@@ -287,6 +287,24 @@ function WorkerPowerHome({ navigate }: { navigate: (v: View) => void }) {
           <p className="text-sm text-amber-800 mt-0.5">{data.festival.note}</p>
         </div>
       )}
+      {(data.skills?.length || 0) > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {data.skills!.map((s) => (
+            <span key={s} className="rounded-full bg-brand-soft text-brand px-3 py-1 text-xs font-semibold">
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+      {data.hasSkills === false && !data.activeJob && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 space-y-2">
+          <p className="font-display text-lg font-bold text-navy">Complete Your Worker Profile</p>
+          <p className="text-sm text-slate-600">Add your service skills to start receiving relevant jobs.</p>
+          <Button size="sm" onClick={() => navigate("worker-passport")}>
+            Update Skills
+          </Button>
+        </div>
+      )}
       {data.activeJob && (
         <button
           type="button"

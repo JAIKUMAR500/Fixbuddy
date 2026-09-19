@@ -13,6 +13,16 @@ const settingsSchema = new mongoose.Schema(
     smtpUser: { type: String, default: "" },
     smtpPass: { type: String, default: "" },
     commissionPercent: { type: Number, default: 10 },
+    /** Demo defaults by provider context. Historical jobs keep applied finance.commissionPercent. */
+    commissionRates: {
+      type: {
+        independent: { type: Number, default: 10 },
+        crew: { type: Number, default: 10 },
+        businessMarketplace: { type: Number, default: 8 },
+        businessManaged: { type: Number, default: 8 },
+      },
+      default: () => ({ independent: 10, crew: 10, businessMarketplace: 8, businessManaged: 8 }),
+    },
     travelCompensationInr: { type: Number, default: 75 },
     festivalName: { type: String, default: "" },
     festivalCity: { type: String, default: "" },

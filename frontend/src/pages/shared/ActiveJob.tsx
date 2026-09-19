@@ -72,6 +72,14 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   const [busy, setBusy] = useState("");
   const [otp, setOtp] = useState("");
   const [watchUrl, setWatchUrl] = useState("");
+  const [receipt, setReceipt] = useState<{
+    role: "worker" | "customer";
+    amount: number;
+    net?: number;
+    commission?: number;
+    category: string;
+    code?: string;
+  } | null>(null);
   const [photoStage, setPhotoStage] = useState<"before" | "during" | "after">("before");
   const [liveWorker, setLiveWorker] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [socketState, setSocketState] = useState<RealtimeConnectionState>(getRealtimeConnectionState());
@@ -128,13 +136,13 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       setJob((prev) =>
         prev
           ? {
-              ...prev,
-              workerLat: lat,
-              workerLng: lng,
-              workerLocationAt: new Date(at).toISOString(),
-              distanceKm: typeof payload.distanceKm === "number" ? payload.distanceKm : prev.distanceKm,
-              etaMinutes: typeof payload.etaMinutes === "number" ? payload.etaMinutes : prev.etaMinutes,
-            }
+            ...prev,
+            workerLat: lat,
+            workerLng: lng,
+            workerLocationAt: new Date(at).toISOString(),
+            distanceKm: typeof payload.distanceKm === "number" ? payload.distanceKm : prev.distanceKm,
+            etaMinutes: typeof payload.etaMinutes === "number" ? payload.etaMinutes : prev.etaMinutes,
+          }
           : prev
       );
     });
@@ -179,6 +187,73 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
     }
   };
 
+  const successReceipt = receipt;
+  if (successReceipt) {
+    const paid = formatRupees(successReceipt.amount);
+    const netLabel = successReceipt.net != null ? formatRupees(successReceipt.net) : paid;
+    const nextView = worker ? "worker-next-jobs" : "create-request";
+    const historyView = worker ? "my-jobs" : "my-requests";
+    return (
+      <div className="p-5 max-w-lg mx-auto space-y-5 animate-fade-in" data-testid="payment-success">
+        <div className="rounded-3xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-sky-600 text-white p-6 shadow-lg">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+            {successReceipt.role === "worker" ? "Payment collected" : "Job confirmed"}
+          </p>
+          <div className="mt-4 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center text-3xl font-black">✓</div>
+          </div>
+          <p className="mt-4 text-center font-display text-4xl font-black tracking-tight">{paid}</p>
+          <p className="mt-2 text-center text-emerald-50 text-sm">
+            {successReceipt.category}
+            {successReceipt.code ? ` · ${successReceipt.code}` : ""}
+          </p>
+          {successReceipt.role === "worker" && (
+            <div className="mt-5 rounded-2xl bg-white/15 px-4 py-3 space-y-1 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-emerald-100">Job amount</span>
+                <span className="font-semibold">{paid}</span>
+              </div>
+              {successReceipt.commission != null && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-emerald-100">Commission</span>
+                  <span>{formatRupees(successReceipt.commission)}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-3 pt-1 border-t border-white/20">
+                <span className="text-emerald-100">Your earnings</span>
+                <span className="font-bold text-lg">{netLabel}</span>
+              </div>
+            </div>
+          )}
+          {successReceipt.role === "customer" && (
+            <p className="mt-4 text-center text-sm text-emerald-50">
+              You confirmed the work and the agreed amount of {paid}.
+            </p>
+          )}
+        </div>
+        <Button
+          className="w-full min-h-14 text-lg"
+          onClick={() => {
+            setReceipt(null);
+            navigate(nextView);
+          }}
+        >
+          {worker ? "Find next job" : "Post a New Job"}
+        </Button>
+        <Button
+          variant="outline"
+          className="w-full min-h-12"
+          onClick={() => {
+            setReceipt(null);
+            navigate(historyView);
+          }}
+        >
+          View completed jobs
+        </Button>
+      </div>
+    );
+  }
+
   if (!job) {
     const nextView = worker ? "worker-next-jobs" : "create-request";
     const historyView = worker ? "my-jobs" : "my-requests";
@@ -202,6 +277,17 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
   const action = jobPrimaryAction(job.status);
   const amount = jobAmountRupees(job);
+  const isCrewLead = !job.crewId || String(job.provider?.id || "") === String(user?.id || "");
+  const isCrewMemberOnly = worker && !!job.crewId && !isCrewLead;
+  const canLeadActions = worker && isCrewLead;
+  const photoUrl = (p: { url: string } | string) => (typeof p === "string" ? p : p.url);
+  const stageAllowed = (stage: "before" | "during" | "after") => {
+    if (["cancelled", "declined", "reviewed", "payment_collected", "customer_completed"].includes(job.status)) return false;
+    if (stage === "before") return ["arrived", "otp_verified", "in_progress"].includes(job.status);
+    if (stage === "during") return job.status === "in_progress";
+    return ["in_progress", "completed"].includes(job.status);
+  };
+  const canUploadProof = worker && stageAllowed(photoStage);
   const problemText =
     worker && job.translatedDescription && job.translatedDescription !== job.description
       ? job.translatedDescription
@@ -231,11 +317,11 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           </p>
           <Chip size="small" color="primary" label={statusLabel(job.status)} sx={{ mt: 1 }} />
         </div>
-        {canCancelJob(job.status) && (
+        {canCancelJob(job.status) && (canLeadActions || !worker) && (
           <div className="shrink-0">
             <CancelJobPanel
               variant="button"
-              worker={worker}
+              worker={!!worker}
               job={job}
               policy={job.cancelPolicy}
               busy={busy === "cancel"}
@@ -255,6 +341,33 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
       )}
 
       <JobProgress status={job.status} />
+
+      {(job.crewMembers?.length || job.crew) && (
+        <Card padding="md" className="space-y-3 border-sky-100 bg-sky-50/40">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">Crew assigned</p>
+          <p className="font-display text-lg font-bold text-slate-900">{job.crew?.name || "FixBuddy Crew"}</p>
+          <div className="space-y-2">
+            {(job.crewMembers || []).map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-100 px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{m.name}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {m.isLead || m.role === "leader" ? "Crew Lead" : m.category || m.role || "Member"}
+                    {m.verified ? " · Verified" : ""}
+                  </p>
+                </div>
+                <span className="text-[11px] font-semibold text-amber-700 capitalize">{m.state}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isCrewMemberOnly && (
+        <p className="text-sm bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2">
+          Crew lead controls this job lifecycle. You can view the job and upload work proof when allowed.
+        </p>
+      )}
 
       <JobTrackingPanel
         job={job}
@@ -335,7 +448,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </Card>
       )}
 
-      {worker && action === "otp" && (
+      {canLeadActions && action === "otp" && (
         <div className="space-y-2">
           <p className="text-center text-sm font-semibold text-slate-600">Enter Customer OTP</p>
           <input
@@ -356,7 +469,7 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </div>
       )}
 
-      {worker && action === "enroute" && (
+      {canLeadActions && action === "enroute" && (
         <Button
           className="w-full min-h-14 text-lg"
           disabled={!!busy}
@@ -370,12 +483,12 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           <Navigation className="w-5 h-5" /> {t("job.onTheWay")}
         </Button>
       )}
-      {worker && action === "arrive" && (
+      {canLeadActions && action === "arrive" && (
         <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("arrive", async () => RequestAPI.arrive(job.id, await loc()))}>
           Mark as Arrived
         </Button>
       )}
-      {worker && (action === "start" || job.status === "in_progress") && (
+      {canLeadActions && (action === "start" || job.status === "in_progress") && (
         <Card padding="md" className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Work in Progress</p>
           <p className="text-sm">Customer: {job.customer?.name || "Customer"}</p>
@@ -392,25 +505,100 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           )}
         </Card>
       )}
-      {worker && action === "collect" && (
+      {canLeadActions && action === "collect" && (
         <div className="space-y-2">
           <SimulatedMoneyBanner />
-          <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("collect", () => RequestAPI.collectPayment(job.id))}>
-            <Wallet className="w-5 h-5" /> Record simulated collection ₹{amount}
+          <Card padding="md" className="space-y-2 text-center border-emerald-200 bg-emerald-50">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Collect from customer</p>
+            <p className="font-display text-4xl font-black text-navy">₹{amount.toLocaleString("en-IN")}</p>
+            <p className="text-sm text-slate-600">{job.category}</p>
+          </Card>
+          {job.finance?.settled && (
+            <Card padding="md" className="space-y-1 text-sm">
+              <p className="font-semibold">Job Amount · {formatRupees(job.finance.jobPriceRupees)}</p>
+              <p className="text-slate-600">FixBuddy Commission · {formatRupees(job.finance.commissionRupees)} ({job.finance.commissionPercent}%)</p>
+              <p className="text-emerald-700 font-semibold">Your Earnings · {formatRupees(job.finance.workerNetRupees)}</p>
+            </Card>
+          )}
+          <Button
+            className="w-full min-h-14 text-lg"
+            disabled={!!busy}
+            onClick={() => {
+              void (async () => {
+                if (!navigator.onLine) {
+                  setError("Connection lost. We're keeping your active job safe.");
+                  return;
+                }
+                setBusy("collect");
+                setError("");
+                const snap = {
+                  role: "worker" as const,
+                  amount: jobAmountRupees(job),
+                  net: job.finance?.workerNetRupees,
+                  commission: job.finance?.commissionRupees,
+                  category: job.category,
+                  code: job.code,
+                };
+                try {
+                  await RequestAPI.collectPayment(job.id);
+                  setReceipt(snap);
+                  await refreshCurrentJob();
+                } catch (e) {
+                  setError(jobError(e));
+                } finally {
+                  setBusy("");
+                }
+              })();
+            }}
+          >
+            <Wallet className="w-5 h-5" /> Collect ₹{amount.toLocaleString("en-IN")}
           </Button>
         </div>
       )}
       {!worker && job.status === "completed" && job.paymentStatus !== "collected" && (
         <div className="space-y-2">
           <SimulatedMoneyBanner />
-          <p className="text-center font-semibold">Work completed?</p>
-          <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.customerComplete(job.id))}>
-            Confirm Completion
+          <Card padding="md" className="space-y-2 text-center border-sky-200 bg-sky-50">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Confirm amount</p>
+            <p className="font-display text-4xl font-black text-navy">₹{amount.toLocaleString("en-IN")}</p>
+            <p className="text-sm text-slate-600">{job.category} · work completed</p>
+          </Card>
+          <p className="text-center font-semibold text-slate-800">Confirm you received the work for this amount?</p>
+          <Button
+            className="w-full min-h-14 text-lg"
+            disabled={!!busy}
+            onClick={() => {
+              void (async () => {
+                if (!navigator.onLine) {
+                  setError("Connection lost. We're keeping your active job safe.");
+                  return;
+                }
+                setBusy("complete");
+                setError("");
+                const snap = {
+                  role: "customer" as const,
+                  amount: jobAmountRupees(job),
+                  category: job.category,
+                  code: job.code,
+                };
+                try {
+                  await RequestAPI.customerComplete(job.id);
+                  setReceipt(snap);
+                  await refreshCurrentJob();
+                } catch (e) {
+                  setError(jobError(e));
+                } finally {
+                  setBusy("");
+                }
+              })();
+            }}
+          >
+            Confirm Completion · ₹{amount.toLocaleString("en-IN")}
           </Button>
         </div>
       )}
 
-      {canCancelJob(job.status) && (
+      {canCancelJob(job.status) && canLeadActions && (
         <CancelJobPanel
           worker={worker}
           job={job}
@@ -419,46 +607,84 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}
         />
       )}
+      {canCancelJob(job.status) && !worker && (
+        <CancelJobPanel
+          worker={false}
+          job={job}
+          policy={job.cancelPolicy}
+          busy={busy === "cancel"}
+          onCancel={(reason) => void run("cancel", () => RequestAPI.cancel(job.id, { reason }))}
+        />
+      )}
 
-      {worker && ["in_progress", "arrived", "otp_verified", "completed"].includes(job.status) && (
-        <Card padding="md" className="space-y-2">
-          <p className="text-xs font-semibold text-slate-500">Proof of work</p>
-          <div className="flex gap-2">
-            {(["before", "during", "after"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setPhotoStage(s)}
-                className={`flex-1 min-h-10 rounded-xl text-xs font-semibold ${photoStage === s ? "bg-slate-900 text-white" : "bg-slate-100"}`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          <label className="block text-center min-h-11 rounded-xl border border-dashed border-slate-300 text-sm font-semibold text-slate-600 py-3 cursor-pointer">
-            Add {photoStage} photo
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                void uploadImage(file)
-                  .then((r) => run("photo", () => RequestAPI.workPhotos(job.id, photoStage, r.url)))
-                  .catch((err) => setError(jobError(err)));
-              }}
-            />
-          </label>
-          <div className="flex gap-2 overflow-x-auto">
-            {(job.workPhotos?.[photoStage] || []).map((src) => (
-              <img key={src} src={mediaUrl(src)} alt="" className="w-16 h-16 rounded-lg object-cover" />
-            ))}
-          </div>
+      <Card padding="md" className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Work Proof</p>
+          <p className="text-[11px] text-slate-400">
+            {job.workPhotoCount || 0} photos
+            {job.workPhotosUpdatedAt
+              ? ` · Updated ${new Date(job.workPhotosUpdatedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`
+              : ""}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {(["before", "during", "after"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setPhotoStage(s)}
+              className={`flex-1 min-h-10 rounded-xl text-xs font-semibold capitalize ${photoStage === s ? "bg-slate-900 text-white" : "bg-slate-100"}`}
+            >
+              {s === "during" ? "During" : s}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          {photoStage === "before" ? "Before work" : photoStage === "during" ? "During work" : "After work"}
+        </p>
+        <div className="flex gap-2 overflow-x-auto items-center">
+          {(job.workPhotos?.[photoStage] || []).map((p) => {
+            const src = photoUrl(p);
+            return (
+              <div key={src} className="shrink-0">
+                <img src={mediaUrl(src)} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-200" />
+              </div>
+            );
+          })}
+          {worker && canUploadProof && (
+            <label className="shrink-0 w-16 h-16 rounded-lg border border-dashed border-slate-300 text-[10px] font-semibold text-slate-600 flex items-center justify-center text-center px-1 cursor-pointer">
+              {photoStage === "during" ? "+ Progress" : "+ Add"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  void uploadImage(file)
+                    .then((r) => run("photo", () => RequestAPI.workPhotos(job.id, photoStage, r.url)))
+                    .catch((err) => setError(jobError(err)));
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          )}
+          {worker && !canUploadProof && (
+            <p className="text-xs text-slate-500 py-2">Uploads for this stage are not available right now.</p>
+          )}
+        </div>
+      </Card>
+
+      {worker && job.finance?.settled && action !== "collect" && (
+        <Card padding="md" className="space-y-1 text-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Earnings (demo)</p>
+          <p>Job Amount · {formatRupees(job.finance.jobPriceRupees)}</p>
+          <p className="text-slate-600">FixBuddy Commission · {formatRupees(job.finance.commissionRupees)}</p>
+          <p className="text-emerald-700 font-semibold">Your Earnings · {formatRupees(job.finance.workerNetRupees)}</p>
         </Card>
       )}
 
-      {worker && ["accepted", "scheduled", "on_the_way"].includes(job.status) && (
+      {canLeadActions && ["accepted", "scheduled", "on_the_way"].includes(job.status) && (
         <div className="grid grid-cols-2 gap-2">
           {["HEAVY_RAIN", "TRAFFIC", "FOG", "ROAD_BLOCK"].map((reason) => (
             <button

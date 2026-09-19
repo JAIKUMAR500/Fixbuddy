@@ -78,8 +78,22 @@ export default function Earnings({ navigate }: { navigate: (v: View) => void }) 
                 <p className="text-xs text-slate-500">{t.customer?.name || t.provider?.name || t.area} · {t.scheduledLabel || t.timing}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-bold text-slate-900">{t.estimatedAmount ? `₹${t.estimatedAmount}` : "—"}</p>
-                <span className={`text-xs font-medium ${["completed", "reviewed"].includes(t.status) ? "text-emerald-600" : "text-amber-600"}`}>{t.status}</span>
+                <p className="text-sm font-bold text-slate-900">
+                  {t.finance?.settled
+                    ? `₹${Number(t.finance.workerNetRupees || 0).toLocaleString("en-IN")}`
+                    : t.estimatedAmount
+                      ? `₹${t.estimatedAmount}`
+                      : "—"}
+                </p>
+                {t.finance?.settled ? (
+                  <span className="text-[11px] text-slate-500">
+                    Gross ₹{t.finance.jobPriceRupees} · Fee ₹{t.finance.commissionRupees}
+                  </span>
+                ) : (
+                  <span className={`text-xs font-medium ${["completed", "reviewed"].includes(t.status) ? "text-emerald-600" : "text-amber-600"}`}>
+                    {t.status}
+                  </span>
+                )}
               </div>
             </div>
           ))}

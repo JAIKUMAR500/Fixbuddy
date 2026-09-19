@@ -344,7 +344,14 @@ test("authorization, ObjectId, amount, and ready checks against MongoDB", async 
 
   await t.test("unassigned worker does not receive customer phone", async () => {
     const customer = await makeUser("customer", { phone: "9998887776" });
-    const worker = await makeUser("worker", { provider: { available: true, businessName: "W" } });
+    const worker = await makeUser("worker", {
+      provider: {
+        available: true,
+        businessName: "W",
+        category: "AC Repair & Service",
+        skills: [{ name: "AC Repair & Service" }],
+      },
+    });
     const job = await Request.create({
       code: nextCode(),
       customerId: customer._id,

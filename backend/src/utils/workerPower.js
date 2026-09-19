@@ -178,22 +178,140 @@ export async function healPendingSkillsIntoPassport() {
 }
 
 export function skillMatch(worker, category) {
-  const cat = String(category || "").toLowerCase();
-  const p = worker.provider || {};
-  const hay = [
-    p.category,
-    p.description,
-    ...(p.services || []).map((s) => (typeof s === "string" ? s : s?.name)),
-    ...(p.skills || []).map((s) => s.name || s),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (!cat) return 0.5;
-  if (hay.includes(cat)) return 1;
-  const tokens = cat.split(/\s+/).filter((t) => t.length > 3);
-  if (tokens.some((t) => hay.includes(t))) return 0.7;
-  return 0.25;
+  if (!category) return 0;
+  if (!jobMatchesWorkerSkills(worker, { category })) return 0;
+  const labels = workerSkillLabels(worker).map((s) => s.toLowerCase());
+  const cat = String(category).toLowerCase();
+  if (labels.some((l) => l === cat || cat.includes(l) || l.includes(cat))) return 1;
+  return 0.85;
+}
+
+/**
+ * Canonical skill labels from Worker profile / Skill Passport fields.
+ * Source of truth: provider.category, provider.skills[], provider.services[].
+ */
+export function workerSkillLabels(worker) {
+  const p = worker?.provider || {};
+  const labels = [];
+  if (p.category) labels.push(String(p.category).trim());
+  for (const s of p.skills || []) {
+    const name = typeof s === "string" ? s : s?.name;
+    if (name) labels.push(String(name).trim());
+  }
+  for (const s of p.services || []) {
+    const name = typeof s === "string" ? s : s?.name;
+    if (name) labels.push(String(name).trim());
+  }
+  return [...new Set(labels.filter(Boolean))];
+}
+
+export function workerHasSkills(worker) {
+  return workerSkillLabels(worker).length > 0;
+}
+
+/** Expand common FixBuddy category aliases so Plumber ↔ Plumbing etc. */
+const SKILL_FAMILY = {
+  plumbing: ["plumb", "pipe", "tap", "bathroom", "tank", "leak", "faucet", "drain"],
+  electrical: ["electr", "wiring", "switch", "socket", "fan", "light"],
+  painting: ["paint", "painter", "wall paint"],
+  cleaning: ["clean", "deep clean", "housekeeping"],
+  carpentry: ["carpenter", "wood", "door", "furniture"],
+  "ac repair": ["ac", "air condition", "hvac", "cooling"],
+  "appliance repair": ["appliance", "washing machine", "fridge", "microwave", "geyser"],
+  welding: ["weld", "fabricat"],
+  masonry: ["mason", "tile", "cement", "brick"],
+  driver: ["driv", "cab", "taxi"],
+  "moving / loading": ["moving", "loading", "shifting", "packer"],
+  maintenance: ["maintain", "general repair", "handyman"],
+};
+
+function normalizeSkillText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s/+-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function expandSkillTerms(label) {
+  const raw = normalizeSkillText(label);
+  if (!raw) return [];
+  const terms = new Set([raw, ...raw.split(" ").filter((t) => t.length > 2)]);
+  for (const [family, keys] of Object.entries(SKILL_FAMILY)) {
+    const familyNorm = normalizeSkillText(family);
+    const hit =
+      raw.includes(familyNorm) ||
+      familyNorm.includes(raw) ||
+      keys.some((k) => raw.includes(k) || k.includes(raw));
+    if (hit) {
+      terms.add(familyNorm);
+      keys.forEach((k) => terms.add(k));
+    }
+  }
+  return [...terms];
+}
+
+function jobSearchText(jobOrCategory) {
+  if (typeof jobOrCategory === "string") return normalizeSkillText(jobOrCategory);
+  const j = jobOrCategory || {};
+  // Prefer canonical category + tags only — avoid description keyword leaks.
+  return normalizeSkillText([j.category, ...(j.tags || [])].filter(Boolean).join(" "));
+}
+
+/**
+ * Strict eligibility: Worker skills must overlap Request category/service.
+ * Invited / matched jobs always pass (explicit assignment).
+ */
+export function jobMatchesWorkerSkills(worker, jobOrCategory, { allowInvite = true } = {}) {
+  const job = typeof jobOrCategory === "object" && jobOrCategory ? jobOrCategory : { category: jobOrCategory };
+  const workerId = String(worker?._id || worker?.id || "");
+
+  if (allowInvite && job) {
+    if ((job.invitedProviderIds || []).some((id) => String(id) === workerId)) return true;
+    if ((job.matches || []).some((m) => String(m.providerId) === workerId)) return true;
+    if (job.providerId && String(job.providerId) === workerId) return true;
+    if ((job.crewMemberIds || []).some((id) => String(id) === workerId)) return true;
+  }
+
+  const labels = workerSkillLabels(worker);
+  if (!labels.length) return false;
+
+  const hay = jobSearchText(job);
+  if (!hay) return false;
+
+  const workerTerms = new Set();
+  for (const label of labels) {
+    expandSkillTerms(label).forEach((t) => workerTerms.add(t));
+  }
+
+  // Prefer family / multi-char token overlap — avoid single-letter accidents.
+  for (const term of workerTerms) {
+    if (term.length < 4) continue;
+    if (hay.includes(term)) return true;
+  }
+
+  // Exact category family match against taxonomy keys.
+  for (const [family, keys] of Object.entries(SKILL_FAMILY)) {
+    const familyInJob = hay.includes(family) || keys.some((k) => k.length > 3 && hay.includes(k));
+    if (!familyInJob) continue;
+    for (const label of labels) {
+      const terms = expandSkillTerms(label);
+      if (terms.includes(family) || keys.some((k) => terms.includes(k))) return true;
+    }
+  }
+
+  return false;
+}
+
+export function filterJobsForWorker(worker, jobs) {
+  if (!workerHasSkills(worker)) {
+    // Still allow explicitly invited/matched jobs so invites work during onboarding.
+    return (jobs || []).filter((j) => jobMatchesWorkerSkills(worker, j, { allowInvite: true }) && (
+      (j.invitedProviderIds || []).some((id) => String(id) === String(worker._id || worker.id)) ||
+      (j.matches || []).some((m) => String(m.providerId) === String(worker._id || worker.id))
+    ));
+  }
+  return (jobs || []).filter((j) => jobMatchesWorkerSkills(worker, j));
 }
 
 export function rankJobs(worker, jobs, { remaining = 0, sort = "recommended" } = {}) {

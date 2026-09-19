@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Calendar, ChevronRight, MapPin, Plus, Wrench } from "lucide-react";
 import { View } from "../../types";
-import { Avatar, Card, EmptyState, FetchBanner, Skeleton, StatusBadge } from "../../components/ui";
+import { Avatar, Button, Card, EmptyState, FetchBanner, Skeleton, StatusBadge } from "../../components/ui";
 import { useApp, useFetch } from "../../api/AppContext";
-import { RequestAPI, type JobRequest } from "../../api/client";
-import { canCancelJob, isEngagedStatus, statusLabel } from "../../api/jobLock";
-import { isSeeker } from "../../api/roles";
+import { RequestAPI, TeamAPI, type JobRequest } from "../../api/client";
+import { canCancelJob, isEngagedStatus, jobError, statusLabel } from "../../api/jobLock";
+import { isBusiness, isSeeker } from "../../api/roles";
 import { formatRupees, jobAmountRupees } from "../../api/money";
 import CancelJobPanel from "../../components/CancelJobPanel";
 
@@ -61,9 +61,20 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
   const [tab, setTab] = useState<Tab>("All");
   const { data, loading, error, reload } = useFetch<{ requests: JobRequest[] }>("/requests");
   const [cancellingId, setCancellingId] = useState("");
+  const [assignFor, setAssignFor] = useState("");
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; userId: string | null; status: string }[]>([]);
+  const [assignMsg, setAssignMsg] = useState("");
   const worker = isSeeker(user?.role);
+  const business = isBusiness(user?.role);
   const rows = data?.requests || [];
   const focusLocked = Boolean(currentJob && isEngagedStatus(currentJob.status));
+
+  useEffect(() => {
+    if (!business) return;
+    void TeamAPI.get()
+      .then((d) => setTeamMembers((d.team?.members || []).filter((m) => m.status === "active" && m.userId)))
+      .catch(() => setTeamMembers([]));
+  }, [business]);
 
   const counts = useMemo(() => {
     const next: Record<Exclude<Tab, "All">, number> = {
@@ -248,6 +259,44 @@ export default function MyJobs({ navigate }: { navigate: (v: View) => void }) {
                     <ChevronRight className="w-3.5 h-3.5" />
                   </span>
                 </div>
+                {business && !worker && ["matching", "open", "requested"].includes(job.status) && teamMembers.length > 0 && (
+                  <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      fullWidth
+                      onClick={() => setAssignFor(assignFor === job.id ? "" : job.id)}
+                    >
+                      Assign Business Team worker
+                    </Button>
+                    {assignFor === job.id && (
+                      <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                        <p className="text-xs font-semibold text-slate-600">Select worker</p>
+                        {assignMsg && <p className="text-xs text-red-600">{assignMsg}</p>}
+                        {teamMembers.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="w-full text-left text-sm font-semibold rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                            onClick={() => {
+                              if (!m.userId) return;
+                              setAssignMsg("");
+                              void TeamAPI.assignJob(job.id, m.userId)
+                                .then(async () => {
+                                  setAssignFor("");
+                                  await refreshCurrentJob();
+                                  reload();
+                                })
+                                .catch((e) => setAssignMsg(jobError(e)));
+                            }}
+                          >
+                            {m.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {canCancelJob(job.status) && (
                   <div className="mt-3" onClick={(e) => e.stopPropagation()}>
                     <CancelJobPanel

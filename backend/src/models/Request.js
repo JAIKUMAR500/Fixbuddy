@@ -95,10 +95,17 @@ const requestSchema = new mongoose.Schema(
     customerLanguage: { type: String, default: "en" },
     workerLanguage: { type: String, default: "en" },
     translatedDescription: { type: String, default: "" },
+    /** Legacy: string URL. Current: { url, uploadedBy, uploadedAt, caption }. Both accepted. */
     workPhotos: {
-      before: { type: [String], default: [] },
-      during: { type: [String], default: [] },
-      after: { type: [String], default: [] },
+      before: { type: [mongoose.Schema.Types.Mixed], default: [] },
+      during: { type: [mongoose.Schema.Types.Mixed], default: [] },
+      after: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    },
+    /** How the worker was attached: solo accept, crew, or business team assign. */
+    assignmentMode: {
+      type: String,
+      enum: ["solo", "crew", "business_team", "invite", ""],
+      default: "",
     },
     watchToken: { type: String, default: "", index: true },
     watchTokenExpiresAt: { type: Date, default: null },

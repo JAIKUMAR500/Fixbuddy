@@ -80,10 +80,38 @@ export function travelCompensationPaise(settings) {
   return rupeesToPaise(rupees);
 }
 
-export function commissionPercentFrom(settings) {
-  const raw = settings?.commissionPercent ?? DEFAULT_COMMISSION_PERCENT;
+export function clampCommissionPercent(raw) {
   const n = Math.trunc(Number(raw) || 0);
   if (n < 0) return 0;
   if (n > MAX_COMMISSION_PERCENT) return MAX_COMMISSION_PERCENT;
   return n;
+}
+
+export function commissionPercentFrom(settings) {
+  return clampCommissionPercent(settings?.commissionPercent ?? DEFAULT_COMMISSION_PERCENT);
+}
+
+/**
+ * Pick demo commission rate by job context. Applied rate is snapshotted onto
+ * Request.finance at settle time and never recalculated from live settings.
+ */
+export function commissionContextOf(request) {
+  if (!request) return "independent";
+  if (request.crewId || request.assignmentMode === "crew") return "crew";
+  if (request.assignmentMode === "business_team") return "businessManaged";
+  if (request.postedByRole === "business") return "businessMarketplace";
+  return "independent";
+}
+
+export function commissionPercentForRequest(request, settings) {
+  const rates = settings?.commissionRates || {};
+  const ctx = commissionContextOf(request);
+  const keyed = {
+    independent: rates.independent,
+    crew: rates.crew,
+    businessMarketplace: rates.businessMarketplace,
+    businessManaged: rates.businessManaged,
+  }[ctx];
+  if (keyed != null && keyed !== "") return clampCommissionPercent(keyed);
+  return commissionPercentFrom(settings);
 }

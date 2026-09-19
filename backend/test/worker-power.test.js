@@ -15,15 +15,60 @@ import {
 import { presentRequest } from "../src/utils/serialize.js";
 import { User } from "../src/models/User.js";
 import { WorkerPassport } from "../src/models/WorkerPassport.js";
-import { loadPassport } from "../src/utils/workerPower.js";
+import { Request } from "../src/models/Request.js";
+import {
+  loadPassport,
+  jobMatchesWorkerSkills,
+  filterJobsForWorker,
+  workerHasSkills,
+  workerSkillLabels,
+} from "../src/utils/workerPower.js";
 import workerRoutes from "../src/routes/worker.js";
+import requestRoutes from "../src/routes/requests.js";
 import adminRoutes from "../src/routes/admin.js";
 import { errorHandler } from "../src/middleware/error.js";
 import { httpError } from "../src/utils/asyncHandler.js";
+import { NO_ACCESS_MESSAGE } from "../src/utils/jobLock.js";
+test("worker skill matching tolerates aliases and rejects unrelated categories", () => {
+  const plumber = {
+    _id: "w1",
+    provider: { category: "Plumber", skills: [{ name: "Pipe Repair" }, { name: "Bathroom Plumbing" }] },
+  };
+  const multi = {
+    _id: "w2",
+    provider: { category: "Plumbing", skills: [{ name: "Electrician" }] },
+  };
+  const empty = { _id: "w3", provider: {} };
 
-test("nearby-job distance is calculated in kilometers", () => {
-  const distance = km(11.0168, 76.9558, 11.0268, 76.9658);
-  assert.ok(distance > 1 && distance < 2);
+  assert.equal(jobMatchesWorkerSkills(plumber, { category: "Plumbing" }), true);
+  assert.equal(jobMatchesWorkerSkills(plumber, { category: "Pipe leakage repair" }), true);
+  assert.equal(jobMatchesWorkerSkills(plumber, { category: "House Painting" }), false);
+  assert.equal(jobMatchesWorkerSkills(plumber, { category: "Deep cleaning" }), false);
+  assert.equal(jobMatchesWorkerSkills(multi, { category: "Electrical" }), true);
+  assert.equal(jobMatchesWorkerSkills(multi, { category: "Plumbing" }), true);
+  assert.equal(jobMatchesWorkerSkills(empty, { category: "Plumbing" }), false);
+  assert.equal(
+    jobMatchesWorkerSkills(empty, { category: "Plumbing", invitedProviderIds: ["w3"] }),
+    true
+  );
+
+  const jobs = [
+    { _id: "1", category: "Plumbing", status: "open" },
+    { _id: "2", category: "Painting", status: "open" },
+    { _id: "3", category: "Electrical", status: "open" },
+  ];
+  assert.deepEqual(
+    filterJobsForWorker(plumber, jobs).map((j) => j.category),
+    ["Plumbing"]
+  );
+  assert.deepEqual(
+    filterJobsForWorker(multi, jobs).map((j) => j.category).sort(),
+    ["Electrical", "Plumbing"]
+  );
+  assert.equal(filterJobsForWorker(empty, jobs).length, 0);
+  assert.equal(workerHasSkills(plumber), true);
+  assert.equal(workerHasSkills(empty), false);
+  assert.ok(workerSkillLabels(plumber).includes("Plumber"));
 });
 
 test("recommended jobs use only open lifecycle statuses", () => {
@@ -139,6 +184,7 @@ function appServer() {
     next();
   });
   app.use("/api/worker", workerRoutes);
+  app.use("/api/requests", requestRoutes);
   app.use("/api/admin", adminRoutes);
   app.use(errorHandler);
   return app;
@@ -182,6 +228,110 @@ test("worker skill verification appears in the admin queue and updates the passp
     assert.ok(pack.badges.some((b) => b.id === "skill-verified"));
     const passport = await WorkerPassport.findOne({ workerId: worker._id });
     assert.equal(passport.skills.some((s) => s.name === "Plumbing" && s.verificationStatus === "verified"), true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("nearby jobs and request GET enforce skill matching", async (t) => {
+  if (!mongoReady) return t.skip("MongoDB is not available");
+  const customer = await User.create({
+    name: "Cust",
+    email: `c-${nextCode()}@skill.test`,
+    passwordHash: "x",
+    role: "customer",
+  });
+  const plumber = await User.create({
+    name: "Plumber",
+    email: `p-${nextCode()}@skill.test`,
+    passwordHash: "x",
+    role: "worker",
+    provider: {
+      available: true,
+      nextJobAvailable: true,
+      businessName: "Pipe Pros",
+      category: "Plumbing",
+      skills: [{ name: "Plumbing" }, { name: "Pipe Repair" }],
+    },
+  });
+  const painter = await User.create({
+    name: "Painter",
+    email: `paint-${nextCode()}@skill.test`,
+    passwordHash: "x",
+    role: "worker",
+    provider: {
+      available: true,
+      nextJobAvailable: true,
+      businessName: "Paint Co",
+      category: "Painting",
+      skills: [{ name: "Painting" }],
+    },
+  });
+  const noSkills = await User.create({
+    name: "New",
+    email: `new-${nextCode()}@skill.test`,
+    passwordHash: "x",
+    role: "worker",
+    provider: { available: true, nextJobAvailable: true, businessName: "New Worker" },
+  });
+  const plumbingJob = await Request.create({
+    code: nextCode(),
+    customerId: customer._id,
+    description: "Pipe leak",
+    category: "Plumbing",
+    status: "open",
+    publicPost: true,
+    estimatedAmount: 800,
+  });
+  const paintingJob = await Request.create({
+    code: nextCode(),
+    customerId: customer._id,
+    description: "Wall paint",
+    category: "Painting",
+    status: "open",
+    publicPost: true,
+    estimatedAmount: 1200,
+  });
+  const electricalJob = await Request.create({
+    code: nextCode(),
+    customerId: customer._id,
+    description: "Fan fix",
+    category: "Electrical",
+    status: "open",
+    publicPost: true,
+    estimatedAmount: 500,
+  });
+
+  const { server, url } = await listen(appServer());
+  try {
+    const nearbyPlumber = await json(url, "GET", "/api/worker/nearby-jobs", null, plumber._id);
+    assert.equal(nearbyPlumber.status, 200);
+    assert.equal(nearbyPlumber.data.hasSkills, true);
+    const plumberCats = (nearbyPlumber.data.jobs || []).map((j) => j.category);
+    assert.ok(plumberCats.includes("Plumbing"));
+    assert.equal(plumberCats.includes("Painting"), false);
+    assert.equal(plumberCats.includes("Electrical"), false);
+
+    const nearbyNone = await json(url, "GET", "/api/worker/nearby-jobs", null, noSkills._id);
+    assert.equal(nearbyNone.status, 200);
+    assert.equal(nearbyNone.data.hasSkills, false);
+    assert.equal((nearbyNone.data.jobs || []).length, 0);
+
+    const allow = await json(url, "GET", `/api/requests/${plumbingJob._id}`, null, plumber._id);
+    assert.equal(allow.status, 200);
+
+    const deny = await json(url, "GET", `/api/requests/${paintingJob._id}`, null, plumber._id);
+    assert.equal(deny.status, 403);
+    assert.equal(deny.data.message, NO_ACCESS_MESSAGE);
+
+    const denyElectrical = await json(url, "GET", `/api/requests/${electricalJob._id}`, null, plumber._id);
+    assert.equal(denyElectrical.status, 403);
+
+    const painterOk = await json(url, "GET", `/api/requests/${paintingJob._id}`, null, painter._id);
+    assert.equal(painterOk.status, 200);
+
+    const acceptBad = await json(url, "POST", `/api/requests/${paintingJob._id}/accept`, {}, plumber._id);
+    assert.equal(acceptBad.status, 403);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -3,6 +3,7 @@ import { km, etaMinutes, isOnline, TRACKING_STATUSES } from "./geo.js";
 import { approxCoord, cancelPolicyFor } from "./jobLock.js";
 import { FINANCIAL_MODE, FINANCE_STATUS, SIMULATION_LABEL } from "../services/payments/config.js";
 import { paiseToRupees } from "../services/payments/money.js";
+import { presentWorkPhotos, workPhotoCount, latestWorkPhotoAt } from "./workPhotos.js";
 import { typicalPrice } from "./guidePrices.js";
 
 export function publicUser(user) {
@@ -216,7 +217,10 @@ export function presentRequest(doc, extras = {}) {
     customerLanguage: r.customerLanguage || "en",
     workerLanguage: r.workerLanguage || "en",
     translatedDescription: r.translatedDescription || "",
-    workPhotos: r.workPhotos || { before: [], during: [], after: [] },
+    workPhotos: presentWorkPhotos(r.workPhotos),
+    workPhotoCount: workPhotoCount(r.workPhotos),
+    workPhotosUpdatedAt: latestWorkPhotoAt(r.workPhotos),
+    assignmentMode: r.assignmentMode || "",
     tower: extras.hideGate || extras.hideContact ? "" : r.tower || "",
     flat: extras.hideGate || extras.hideContact ? "" : r.flat || "",
     gateNote: extras.hideGate || extras.hideContact ? "" : r.gateNote || "",
@@ -296,5 +300,8 @@ export function presentCrew(doc, usersById = {}) {
     completedJobs: c.completedJobs || 0,
     ratingAvg: c.ratingAvg || 0,
     ratingCount: c.ratingCount || 0,
+    verified:
+      members.filter((m) => m.status === "active").length > 0 &&
+      members.filter((m) => m.status === "active").every((m) => m.verified),
   };
 }

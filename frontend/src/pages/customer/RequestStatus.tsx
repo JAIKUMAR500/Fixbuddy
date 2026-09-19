@@ -450,9 +450,12 @@ export default function RequestStatus({ navigate }: { navigate: (v: View) => voi
                     <div key={stage}>
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">{stage}</p>
                       <div className="flex gap-2 overflow-x-auto">
-                        {(request.workPhotos?.[stage] || []).map((src) => (
-                          <img key={src} src={mediaUrl(src)} alt="" className="h-24 w-24 rounded-xl object-cover bg-slate-100" />
-                        ))}
+                        {(request.workPhotos?.[stage] || []).map((p) => {
+                          const src = typeof p === "string" ? p : p.url;
+                          return (
+                            <img key={src} src={mediaUrl(src)} alt="" className="h-24 w-24 rounded-xl object-cover bg-slate-100" />
+                          );
+                        })}
                       </div>
                     </div>
                   ) : null

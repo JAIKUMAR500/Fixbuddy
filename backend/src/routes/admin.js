@@ -45,6 +45,9 @@ router.param("skillId", paramObjectId("skillId"));
 router.get(
   "/overview",
   asyncHandler(async (_req, res) => {
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
     const weekAgo = new Date(Date.now() - 7 * 86400000);
     const twoWeeks = new Date(Date.now() - 14 * 86400000);
     const [
@@ -58,6 +61,8 @@ router.get(
       activeJobs,
       completedJobs,
       revenueAgg,
+      todayRevenueAgg,
+      todayTxnCount,
       weekCustomers,
       prevWeekCustomers,
     ] = await Promise.all([
@@ -74,6 +79,11 @@ router.get(
         { $match: { type: LEDGER_TYPES.COMMISSION, status: "simulated" } },
         { $group: { _id: null, total: { $sum: "$amountPaise" } } },
       ]),
+      LedgerEntry.aggregate([
+        { $match: { type: LEDGER_TYPES.COMMISSION, status: "simulated", createdAt: { $gte: startOfDay } } },
+        { $group: { _id: null, total: { $sum: "$amountPaise" } } },
+      ]),
+      LedgerEntry.countDocuments({ type: LEDGER_TYPES.COMMISSION, status: "simulated", createdAt: { $gte: startOfDay } }),
       User.countDocuments({ role: "customer", createdAt: { $gte: weekAgo } }),
       User.countDocuments({ role: "customer", createdAt: { $gte: twoWeeks, $lt: weekAgo } }),
     ]);
@@ -93,6 +103,8 @@ router.get(
       activeJobs,
       completedJobs,
       revenue: paiseToRupees(revenueAgg[0]?.total || 0),
+      revenueToday: paiseToRupees(todayRevenueAgg[0]?.total || 0),
+      revenueTodayTxns: todayTxnCount,
       financialMode: "development",
       financialLabel: SIMULATION_LABEL,
       customerGrowth: growth,
@@ -422,6 +434,138 @@ router.get(
   })
 );
 
+/** Demo commission revenue summary — periods + transaction table. */
+router.get(
+  "/revenue",
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7));
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const rangeKey = String(req.query.range || "today");
+    const since =
+      rangeKey === "all"
+        ? new Date(0)
+        : rangeKey === "month"
+          ? startOfMonth
+          : rangeKey === "week"
+            ? startOfWeek
+            : startOfDay;
+
+    const matchCommission = {
+      type: LEDGER_TYPES.COMMISSION,
+      status: "simulated",
+      ...(rangeKey === "all" ? {} : { createdAt: { $gte: since } }),
+    };
+    const matchPayment = {
+      type: LEDGER_TYPES.JOB_PAYMENT,
+      status: "simulated",
+      ...(rangeKey === "all" ? {} : { createdAt: { $gte: since } }),
+    };
+    const matchEarning = {
+      type: LEDGER_TYPES.WORKER_EARNING,
+      status: "simulated",
+      ...(rangeKey === "all" ? {} : { createdAt: { $gte: since } }),
+    };
+
+    const [commissionAgg, paymentAgg, earningAgg, commissionRows, pendingJobs] = await Promise.all([
+      LedgerEntry.aggregate([{ $match: matchCommission }, { $group: { _id: null, total: { $sum: "$amountPaise" }, n: { $sum: 1 } } }]),
+      LedgerEntry.aggregate([{ $match: matchPayment }, { $group: { _id: null, total: { $sum: "$amountPaise" }, n: { $sum: 1 } } }]),
+      LedgerEntry.aggregate([{ $match: matchEarning }, { $group: { _id: null, total: { $sum: "$amountPaise" } } }]),
+      LedgerEntry.find(matchCommission).sort({ createdAt: -1 }).limit(100).lean(),
+      Request.countDocuments({ status: "completed", "finance.settled": { $ne: true } }),
+    ]);
+
+    const requestIds = commissionRows.map((r) => r.requestId).filter(Boolean);
+    const jobs = await Request.find({ _id: { $in: requestIds } })
+      .select("code category providerId crewId assignmentMode postedByRole finance estimatedAmount")
+      .lean();
+    const jobMap = Object.fromEntries(jobs.map((j) => [String(j._id), j]));
+    const providerIds = [...new Set(jobs.map((j) => j.providerId).filter(Boolean).map(String))];
+    const providers = await User.find({ _id: { $in: providerIds } }).select("name provider").lean();
+    const providerMap = Object.fromEntries(providers.map((u) => [String(u._id), u]));
+
+    const categoryFilter = String(req.query.category || "").trim().toLowerCase();
+    const statusFilter = String(req.query.status || "").trim().toLowerCase();
+
+    let transactions = commissionRows.map((t) => {
+      const job = jobMap[String(t.requestId)] || {};
+      const provider = providerMap[String(job.providerId || t.userId)] || {};
+      const finance = job.finance || {};
+      return {
+        id: String(t._id),
+        code: t.code,
+        requestId: t.requestId ? String(t.requestId) : null,
+        requestCode: job.code || "",
+        category: job.category || "",
+        providerName: provider.provider?.businessName || provider.name || "Provider",
+        providerId: job.providerId ? String(job.providerId) : null,
+        assignmentMode: job.assignmentMode || "",
+        gross: paiseToRupees(finance.jobPricePaise || t.amountPaise * 10),
+        commission: paiseToRupees(t.amountPaise),
+        net: paiseToRupees(finance.workerNetPaise || 0),
+        commissionPercent: finance.commissionPercent || 0,
+        status: t.status,
+        createdAt: t.createdAt,
+      };
+    });
+
+    if (categoryFilter) {
+      transactions = transactions.filter((t) => String(t.category).toLowerCase().includes(categoryFilter));
+    }
+    if (statusFilter) {
+      transactions = transactions.filter((t) => String(t.status).toLowerCase().includes(statusFilter));
+    }
+
+    const periods = {};
+    for (const [key, from] of [
+      ["today", startOfDay],
+      ["week", startOfWeek],
+      ["month", startOfMonth],
+      ["all", new Date(0)],
+    ]) {
+      const [c, p, e] = await Promise.all([
+        LedgerEntry.aggregate([
+          { $match: { type: LEDGER_TYPES.COMMISSION, status: "simulated", ...(key === "all" ? {} : { createdAt: { $gte: from } }) } },
+          { $group: { _id: null, total: { $sum: "$amountPaise" }, n: { $sum: 1 } } },
+        ]),
+        LedgerEntry.aggregate([
+          { $match: { type: LEDGER_TYPES.JOB_PAYMENT, status: "simulated", ...(key === "all" ? {} : { createdAt: { $gte: from } }) } },
+          { $group: { _id: null, total: { $sum: "$amountPaise" } } },
+        ]),
+        LedgerEntry.aggregate([
+          { $match: { type: LEDGER_TYPES.WORKER_EARNING, status: "simulated", ...(key === "all" ? {} : { createdAt: { $gte: from } }) } },
+          { $group: { _id: null, total: { $sum: "$amountPaise" } } },
+        ]),
+      ]);
+      periods[key] = {
+        commission: paiseToRupees(c[0]?.total || 0),
+        gross: paiseToRupees(p[0]?.total || 0),
+        providerNet: paiseToRupees(e[0]?.total || 0),
+        transactions: c[0]?.n || 0,
+      };
+    }
+
+    res.json({
+      financialMode: "development",
+      label: SIMULATION_LABEL,
+      range: rangeKey,
+      summary: {
+        gross: paiseToRupees(paymentAgg[0]?.total || 0),
+        commission: paiseToRupees(commissionAgg[0]?.total || 0),
+        providerNet: paiseToRupees(earningAgg[0]?.total || 0),
+        completedTransactions: commissionAgg[0]?.n || 0,
+        pendingCommission: pendingJobs,
+      },
+      periods,
+      transactions,
+    });
+  })
+);
+
 router.get(
   "/notifications",
   asyncHandler(async (_req, res) => {
@@ -533,6 +677,12 @@ function presentSettings(doc) {
     smtpPass: "",
     smtpPassSet: Boolean(o.smtpPass),
     commissionPercent: o.commissionPercent,
+    commissionRates: o.commissionRates || {
+      independent: o.commissionPercent ?? 10,
+      crew: o.commissionPercent ?? 10,
+      businessMarketplace: 8,
+      businessManaged: 8,
+    },
     travelCompensationInr: o.travelCompensationInr ?? 75,
     financialMode: "development",
     financialLabel: SIMULATION_LABEL,
@@ -574,6 +724,12 @@ router.patch(
     ];
     for (const k of keys) {
       if (req.body[k] !== undefined) doc[k] = req.body[k];
+    }
+    if (req.body.commissionRates && typeof req.body.commissionRates === "object") {
+      doc.commissionRates = {
+        ...(doc.commissionRates?.toObject?.() || doc.commissionRates || {}),
+        ...req.body.commissionRates,
+      };
     }
     if (req.body.cancellationPolicy && typeof req.body.cancellationPolicy === "object") {
       doc.cancellationPolicy = { ...doc.cancellationPolicy?.toObject?.(), ...req.body.cancellationPolicy };

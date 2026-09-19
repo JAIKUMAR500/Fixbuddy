@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { Request } from "../models/Request.js";
 import { User } from "../models/User.js";
 import { Review } from "../models/Review.js";
+import { Crew } from "../models/Crew.js";
 import { getSettings } from "../models/PlatformSettings.js";
 import { matchProviders } from "../services/match.js";
 import { notify, notifyMany } from "../services/notify.js";
@@ -14,6 +15,11 @@ import { providerCard, formatWhen, presentRequest } from "../utils/serialize.js"
 import { isAdmin, isCreator, isSeeker } from "../utils/roles.js";
 import { BUSY_JOB_STATUSES, LOCKED_JOB_STATUSES, TRACKING_STATUSES, km, etaMinutes } from "../utils/geo.js";
 import { guidePrice, guidePriceText, typicalPrice } from "../utils/guidePrices.js";
+import {
+  assertWorkPhotoUploadAllowed,
+  canUploadWorkPhotos,
+  workPhotoLimit,
+} from "../utils/workPhotos.js";
 import { applyWorkerCoords, assertTransition, coordsFromBody } from "../utils/jobState.js";
 import {
   CUSTOMER_FOCUS_MESSAGE,
@@ -35,6 +41,7 @@ import {
   releaseLocksForJob,
   releaseWorkerLock,
 } from "../utils/jobLock.js";
+import { jobMatchesWorkerSkills } from "../utils/workerPower.js";
 import { normalizeLang, translateText } from "../utils/translate.js";
 import { rateLimit, AUTH_LIMITS, clientKey } from "../middleware/rateLimit.js";
 import { createWatchToken, hashWatchToken, watchExpiresAt } from "../utils/watchToken.js";
@@ -102,21 +109,44 @@ async function loadPeople(r, req) {
   };
 }
 
+async function attachCrewExtras(doc, extras) {
+  if (!doc?.crewId && !(doc?.crewMemberIds || []).length) return extras;
+  const pack = await crewTracking(doc);
+  extras.crew = { id: pack.crewId, name: pack.crewName };
+  extras.crewMembers = pack.members;
+  return extras;
+}
+
 async function crewTracking(r) {
   const ids = r.crewMemberIds || [];
-  if (!ids.length) return [];
-  const users = await User.find({ _id: { $in: ids } })
-    .select("name avatar provider")
-    .lean();
+  if (!ids.length) {
+    return { crewName: "Crew", crewId: r.crewId ? String(r.crewId) : null, members: [] };
+  }
+  const [users, crew] = await Promise.all([
+    User.find({ _id: { $in: ids } }).select("name avatar provider").lean(),
+    r.crewId ? Crew.findById(r.crewId).select("name members leaderId").lean() : null,
+  ]);
+  const roleMap = {};
+  for (const m of crew?.members || []) {
+    roleMap[String(m.userId)] = m.role;
+  }
   const status = r.status;
   const arrived = ["arrived", "otp_verified", "in_progress", "completed", "payment_collected", "customer_completed", "reviewed"].includes(status);
   const travelling = ["on_the_way", "arrived", "otp_verified", "in_progress", "completed", "payment_collected"].includes(status);
-  return users.map((u) => ({
-    id: String(u._id),
-    name: u.provider?.businessName || u.name,
-    avatar: u.avatar || "",
-    state: arrived ? "arrived" : travelling ? "arriving" : "assigned",
-  }));
+  return {
+    crewName: crew?.name || "Crew",
+    crewId: r.crewId ? String(r.crewId) : null,
+    members: users.map((u) => ({
+      id: String(u._id),
+      name: u.provider?.businessName || u.name,
+      avatar: u.avatar || "",
+      category: u.provider?.category || "",
+      verified: !!u.provider?.verified,
+      role: roleMap[String(u._id)] || (String(u._id) === String(r.providerId) ? "leader" : "member"),
+      isLead: String(u._id) === String(r.providerId) || String(u._id) === String(crew?.leaderId || ""),
+      state: arrived ? "arrived" : travelling ? "arriving" : "assigned",
+    })),
+  };
 }
 
 function isInvited(doc, userId) {
@@ -129,7 +159,11 @@ function canViewOpenJob(req, doc) {
   if (doc.providerId && String(doc.providerId) === req.userId) return true;
   if ((doc.crewMemberIds || []).some((id) => String(id) === req.userId)) return true;
   if (isInvited(doc, req.userId)) return true;
-  if (isSeeker(req.user.role) && ["matching", "open", "requested"].includes(doc.status)) return true;
+  if ((doc.matches || []).some((m) => String(m.providerId) === req.userId)) return true;
+  // Open marketplace: workers only see skill-matching jobs (enforced server-side).
+  if (isSeeker(req.user.role) && ["matching", "open", "requested"].includes(doc.status)) {
+    return jobMatchesWorkerSkills(req.user, doc, { allowInvite: true });
+  }
   return false;
 }
 
@@ -242,15 +276,16 @@ router.get(
     } else if (isSeeker(req.user.role)) {
       const inbox = req.query.inbox === "true";
       if (inbox) {
-        const cat = req.user.provider?.category;
         const openJobs = {
           status: { $in: ["open", "requested", "matching"] },
           declinedBy: { $ne: req.userId },
           $and: [
             {
-              $or: cat
-                ? [{ category: cat }, { "matches.providerId": req.userId }, { invitedProviderIds: req.userId }, { publicPost: true }]
-                : [{ "matches.providerId": req.userId }, { invitedProviderIds: req.userId }, { publicPost: true }],
+              $or: [
+                { "matches.providerId": req.userId },
+                { invitedProviderIds: req.userId },
+                { category: { $exists: true, $ne: "" } },
+              ],
             },
             {
               $or: [{ providerId: null }, { providerId: { $exists: false } }, { providerId: req.userId }],
@@ -274,7 +309,15 @@ router.get(
       filter.status = req.query.status;
     }
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 80));
-    const rows = await Request.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+    let rows = await Request.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+    // Hard skill filter for worker marketplace inbox (assigned/crew jobs always kept).
+    if (isSeeker(req.user.role) && req.query.inbox === "true") {
+      rows = rows.filter((r) => {
+        if (String(r.providerId || "") === req.userId) return true;
+        if ((r.crewMemberIds || []).some((id) => String(id) === req.userId)) return true;
+        return jobMatchesWorkerSkills(req.user, r, { allowInvite: true });
+      });
+    }
     const people = await User.find({
       _id: { $in: rows.flatMap((r) => [r.customerId, r.providerId]).filter(Boolean) },
     })
@@ -313,6 +356,7 @@ router.get(
     if (!doc) return res.json({ request: null });
     const extras = await loadPeople(doc, req);
     extras.revealOtp = String(doc.customerId) === req.userId;
+    await attachCrewExtras(doc, extras);
     res.json({ request: presentRequest(doc, extras) });
   })
 );
@@ -325,6 +369,7 @@ router.get(
     const extras = await loadPeople(doc, req);
     extras.revealOtp = String(doc.customerId) === req.userId;
     extras.hideGate = isCreator(req.user.role) && !isSeeker(req.user.role) ? false : String(doc.providerId) !== req.userId && !(doc.crewMemberIds || []).some((id) => String(id) === req.userId);
+    await attachCrewExtras(doc, extras);
     res.json({ request: presentRequest(doc, extras), locked: true });
   })
 );
@@ -379,7 +424,7 @@ router.get(
     if (!canViewOpenJob(req, doc)) throw httpError(403, NO_ACCESS_MESSAGE);
     const extras = await loadPeople(doc, req);
     extras.revealOtp = String(doc.customerId) === req.userId;
-    if (doc.crewId) extras.crewMembers = await crewTracking(doc);
+    await attachCrewExtras(doc, extras);
     if (req.query.matches === "true") {
       const ids = (doc.matches || []).map((m) => m.providerId);
       const users = await User.find({ _id: { $in: ids } }).lean();
@@ -508,7 +553,16 @@ router.post(
     if (existing.providerId && String(existing.providerId) !== req.userId) {
       throw httpError(409, "Another worker already accepted this job.");
     }
+    if (existing.crewId) {
+      throw httpError(409, "This job is reserved for a crew. The crew lead must accept it.");
+    }
     if (!PENDING_JOB_STATUSES.includes(existing.status)) throw httpError(409, UNAVAILABLE_MESSAGE);
+    if (
+      !isAdmin(req.user.role) &&
+      !jobMatchesWorkerSkills(req.user, existing, { allowInvite: true })
+    ) {
+      throw httpError(403, "This job does not match your registered skills.");
+    }
 
     const workerLanguage = normalizeLang(req.user.lang);
     let lock;
@@ -529,6 +583,7 @@ router.post(
             status: "accepted",
             acceptedAt: new Date(),
             workerLanguage,
+            assignmentMode: "solo",
           },
           $push: { timeline: { status: "accepted", note: "First worker to accept took this job", at: new Date() } },
         },
@@ -1140,18 +1195,32 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
     const doc = await Request.findById(req.params.id);
-    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!doc) throw httpError(404, "Request not found");
+    if (!canUploadWorkPhotos(req.userId, doc)) throw httpError(403, NO_ACCESS_MESSAGE);
+
     const stage = String(req.body.stage || "").toLowerCase();
-    if (!["before", "during", "after"].includes(stage)) throw httpError(400, "Upload a before, during, or after photo.");
+    const gate = assertWorkPhotoUploadAllowed(doc, stage);
+    if (!gate.ok) throw httpError(gate.status, gate.message);
+
     const url = String(req.body.url || "").trim();
     if (!url) throw httpError(400, "Photo is required");
+
+    const caption = String(req.body.caption || "").slice(0, 200);
+    const limit = workPhotoLimit(stage);
     doc.workPhotos = doc.workPhotos || { before: [], during: [], after: [] };
-    const list = [...(doc.workPhotos[stage] || []), url].slice(-8);
+    const entry = {
+      url,
+      uploadedBy: req.userId,
+      uploadedAt: new Date(),
+      caption,
+    };
+    const list = [...(doc.workPhotos[stage] || []), entry].slice(-limit);
     doc.workPhotos[stage] = list;
     doc.markModified("workPhotos");
     doc.timeline.push({ status: doc.status, note: `Work photo added (${stage})`, at: new Date() });
     await doc.save();
     const extras = await loadPeople(doc.toObject(), req);
+    await attachCrewExtras(doc.toObject(), extras);
     res.json({ request: presentRequest(doc, extras) });
   })
 );

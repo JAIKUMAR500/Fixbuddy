@@ -291,8 +291,11 @@ export const RequestAPI = {
   watchLink: (id: string) =>
     api<{ token: string; expiresAt: string; path: string }>(`/requests/${id}/watch-link`, { method: "POST" }),
   revokeWatch: (id: string) => api<{ ok: boolean }>(`/requests/${id}/watch-link`, { method: "DELETE" }),
-  workPhotos: (id: string, stage: "before" | "during" | "after", url: string) =>
-    api<{ request: JobRequest }>(`/requests/${id}/work-photos`, { method: "POST", body: JSON.stringify({ stage, url }) }),
+  workPhotos: (id: string, stage: "before" | "during" | "after", url: string, caption = "") =>
+    api<{ request: JobRequest }>(`/requests/${id}/work-photos`, {
+      method: "POST",
+      body: JSON.stringify({ stage, url, caption }),
+    }),
   delay: (id: string, reason: string, note = "") =>
     api<{ request: JobRequest }>(`/requests/${id}/delay`, { method: "POST", body: JSON.stringify({ reason, note }) }),
   priceBand: (q: string) =>
@@ -340,13 +343,39 @@ export const CategoryAPI = {
 };
 
 export const TeamAPI = {
-  get: () => api<{ team: TeamPayload }>("/team"),
+  get: () =>
+    api<{
+      team: TeamPayload | null;
+      memberships?: {
+        teamId: string;
+        ownerId?: string;
+        businessName?: string;
+        member: { id: string; status: string; role?: string; name: string } | null;
+      }[];
+    }>("/team"),
+  searchWorkers: (q: string) =>
+    api<{ workers: { id: string; name: string; userCode: string; category: string; verified: boolean; ratingAvg: number; avatar?: string }[] }>(
+      `/team/search-workers?q=${encodeURIComponent(q)}`
+    ),
   addGroup: (name: string) => api<{ team: TeamPayload }>("/team/groups", { method: "POST", body: JSON.stringify({ name }) }),
   patchGroup: (id: string, body: object) => api<{ team: TeamPayload }>(`/team/groups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   removeGroup: (id: string) => api<{ team: TeamPayload }>(`/team/groups/${id}`, { method: "DELETE" }),
   addMember: (body: object) => api<{ team: TeamPayload }>("/team/members", { method: "POST", body: JSON.stringify(body) }),
+  invite: (userId: string, role = "worker") =>
+    api<{ team: TeamPayload }>("/team/invite", { method: "POST", body: JSON.stringify({ userId, role }) }),
+  acceptInvite: (memberId: string) =>
+    api<{ team: TeamPayload }>(`/team/invitations/${memberId}/accept`, { method: "POST" }),
+  rejectInvite: (memberId: string) =>
+    api<{ ok: boolean }>(`/team/invitations/${memberId}/reject`, { method: "POST" }),
   patchMember: (id: string, body: object) => api<{ team: TeamPayload }>(`/team/members/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   removeMember: (id: string) => api<{ team: TeamPayload }>(`/team/members/${id}`, { method: "DELETE" }),
+  leave: (teamId?: string) =>
+    api<{ ok: boolean; left: boolean }>("/team/leave", { method: "POST", body: JSON.stringify({ teamId }) }),
+  assignJob: (requestId: string, workerId: string) =>
+    api<{ ok: boolean; request: JobRequest }>("/team/assign-job", {
+      method: "POST",
+      body: JSON.stringify({ requestId, workerId }),
+    }),
 };
 
 export type WorkerJobCard = {
@@ -411,6 +440,7 @@ export type WorkerCrew = {
   completedJobs: number;
   ratingAvg: number;
   ratingCount: number;
+  verified?: boolean;
 };
 
 export type WorkerPassport = {
@@ -465,6 +495,8 @@ export const WorkerAPI = {
       crew: { id: string; name: string; members: number; ratingAvg: number; completedJobs: number } | null;
       passport: { verified: boolean; jobs: number; ratingAvg: number; badges: WorkerBadge[] };
       festival?: { name: string; city: string; note: string } | null;
+      hasSkills?: boolean;
+      skills?: string[];
     }>("/worker/dashboard"),
   getTarget: () => api<{ target: WorkerTarget }>("/worker/daily-target"),
   setTarget: (amount: number) =>
@@ -483,6 +515,8 @@ export const WorkerAPI = {
       message?: string;
       locked?: boolean;
       activeJobId?: string;
+      hasSkills?: boolean;
+      skills?: string[];
     }>(`/worker/nearby-jobs?sort=${encodeURIComponent(sort)}`),
   recommended: () =>
     api<{ best: WorkerJobCard | null; jobs: WorkerJobCard[]; remaining: number; target: number; earned: number }>(
@@ -538,6 +572,10 @@ export const CrewAPI = {
   rejectInvite: (id: string, invitationId: string) =>
     api<{ crew: WorkerCrew }>(`/crews/${id}/invitations/${invitationId}/reject`, { method: "POST" }),
   removeMember: (id: string, memberId: string) => api<{ crew: WorkerCrew }>(`/crews/${id}/members/${memberId}`, { method: "DELETE" }),
+  leave: (id: string) => api<{ crew: WorkerCrew; left: boolean }>(`/crews/${id}/leave`, { method: "POST" }),
+  transferLead: (id: string, userId: string) =>
+    api<{ crew: WorkerCrew }>(`/crews/${id}/transfer-lead`, { method: "POST", body: JSON.stringify({ userId }) }),
+  dissolve: (id: string) => api<{ ok: boolean; dissolved: boolean; crew: WorkerCrew }>(`/crews/${id}/dissolve`, { method: "POST" }),
   requestJob: (crewId: string, requestId: string, workersRequired?: number) =>
     api<{ ok: boolean }>(`/crews/${crewId}/jobs`, { method: "POST", body: JSON.stringify({ requestId, workersRequired }) }),
   acceptJob: (crewId: string, jobId: string, memberIds: string[], reject = false) =>
@@ -583,8 +621,12 @@ export const PublicAPI = {
 
 export type TeamPayload = {
   id?: string;
+  ownerId?: string;
   groups: { id: string; name: string }[];
   members: { id: string; name: string; email: string; phone: string; role: string; groupId: string; status: string; userId: string | null }[];
+  myRole?: string | null;
+  canManage?: boolean;
+  canAssign?: boolean;
 };
 
 export const StatsAPI = {
@@ -604,6 +646,33 @@ export const AdminAPI = {
   patchComplaint: (id: string, body: object) =>
     api<{ complaint: AdminComplaint }>(`/admin/complaints/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   transactions: () => api<{ transactions: AdminTxn[]; totals: Record<string, number> }>("/admin/transactions"),
+  revenue: (q = "") =>
+    api<{
+      financialMode: string;
+      label: string;
+      range: string;
+      summary: {
+        gross: number;
+        commission: number;
+        providerNet: number;
+        completedTransactions: number;
+        pendingCommission: number;
+      };
+      periods: Record<string, { commission: number; gross: number; providerNet: number; transactions: number }>;
+      transactions: {
+        id: string;
+        requestCode: string;
+        providerName: string;
+        category: string;
+        gross: number;
+        commission: number;
+        net: number;
+        commissionPercent: number;
+        status: string;
+        assignmentMode?: string;
+        createdAt: string;
+      }[];
+    }>(`/admin/revenue${q}`),
   notifications: () => api<{ notifications: { _id: string; text: string; type: string; createdAt: string }[] }>("/admin/notifications"),
   broadcast: (body: object) => api<{ sent: number }>("/admin/notifications", { method: "POST", body: JSON.stringify(body) }),
   audit: () => api<{ logs: AdminAudit[] }>("/admin/audit"),
@@ -702,6 +771,13 @@ export type AppUser = {
   } | null;
 };
 
+export type WorkPhotoItem = {
+  url: string;
+  uploadedBy?: string | null;
+  uploadedAt?: string | null;
+  caption?: string;
+};
+
 export type JobRequest = {
   id: string;
   code: string;
@@ -753,12 +829,29 @@ export type JobRequest = {
   workersRequired?: number;
   cancelReason?: string;
   travelCompensation?: number;
-  crewMembers?: { id: string; name: string; avatar?: string; state: string }[];
+  crewMembers?: {
+    id: string;
+    name: string;
+    avatar?: string;
+    state: string;
+    category?: string;
+    verified?: boolean;
+    role?: string;
+    isLead?: boolean;
+  }[];
+  crew?: { id: string | null; name: string } | null;
   acceptedAt?: string | null;
   customerLanguage?: string;
   workerLanguage?: string;
   translatedDescription?: string;
-  workPhotos?: { before: string[]; during: string[]; after: string[] };
+  workPhotos?: {
+    before: WorkPhotoItem[];
+    during: WorkPhotoItem[];
+    after: WorkPhotoItem[];
+  };
+  workPhotoCount?: number;
+  workPhotosUpdatedAt?: string | null;
+  assignmentMode?: string;
   tower?: string;
   flat?: string;
   gateNote?: string;

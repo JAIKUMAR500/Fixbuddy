@@ -73,7 +73,20 @@ async function makeWorker() {
     passwordHash: "x",
     role: "worker",
     license: buildLicense({ days: 30 }),
-    provider: { available: true, onboarded: true, businessName: `Work ${n}` },
+    provider: {
+      available: true,
+      onboarded: true,
+      businessName: `Work ${n}`,
+      category: "Plumbing",
+      skills: [
+        { name: "Plumbing" },
+        { name: "Electrical" },
+        { name: "Painting" },
+        { name: "Cleaning" },
+        { name: "Carpentry" },
+        { name: "AC Repair & Service" },
+      ],
+    },
   });
 }
 

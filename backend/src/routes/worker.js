@@ -18,6 +18,9 @@ import {
   todayKey,
   loadPassport,
   upsertPassportSkill,
+  filterJobsForWorker,
+  workerHasSkills,
+  workerSkillLabels,
 } from "../utils/workerPower.js";
 
 const router = Router();
@@ -28,25 +31,15 @@ async function passportBundle(user) {
 }
 
 async function openJobsFor(worker) {
-  const cat = worker.provider?.category;
   const filter = {
     status: { $in: OPEN_JOB_STATUSES },
     declinedBy: { $ne: worker._id },
     $or: [{ providerId: null }, { providerId: { $exists: false } }],
   };
-  const rows = await Request.find(filter).sort({ createdAt: -1 }).limit(80).lean();
+  const rows = await Request.find(filter).sort({ createdAt: -1 }).limit(120).lean();
   const available = worker.provider?.nextJobAvailable !== false;
   if (!available) return [];
-  return rows.filter((j) => {
-    if (!cat) return true;
-    const hay = `${j.category || ""} ${(j.tags || []).join(" ")}`.toLowerCase();
-    const skill = (worker.provider?.skills || []).map((s) => s.name).join(" ").toLowerCase();
-    if (hay.includes(String(cat).toLowerCase())) return true;
-    if (skill && hay.split(/\s+/).some((t) => t.length > 3 && skill.includes(t))) return true;
-    if (j.publicPost) return true;
-    return (j.matches || []).some((m) => String(m.providerId) === String(worker._id)) ||
-      (j.invitedProviderIds || []).some((id) => String(id) === String(worker._id));
-  });
+  return filterJobsForWorker(worker, rows);
 }
 
 router.get(
@@ -124,6 +117,8 @@ router.get(
         badges: pack.badges,
       },
       festival,
+      hasSkills: workerHasSkills(user),
+      skills: workerSkillLabels(user),
     });
   })
 );
@@ -221,12 +216,15 @@ router.get(
     const earned = await todayEarned(req.userId);
     const remaining = Math.max(0, target.amount - earned);
     const jobs = rankJobs(req.user, await openJobsFor(req.user), { remaining, sort });
+    const skills = workerSkillLabels(req.user);
     res.json({
       jobs: jobs.map(presentJobCard),
       remaining,
       gps: req.user.lat != null && req.user.lng != null,
       nextJobAvailable: req.user.provider?.nextJobAvailable !== false,
       locked: false,
+      hasSkills: workerHasSkills(req.user),
+      skills,
     });
   })
 );

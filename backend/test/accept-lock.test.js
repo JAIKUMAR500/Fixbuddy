@@ -91,7 +91,19 @@ async function makeWorker() {
     email: `w-${n}@lock.test`,
     passwordHash: "x",
     role: "worker",
-    provider: { available: true, businessName: `Work ${n}` },
+    provider: {
+      available: true,
+      businessName: `Work ${n}`,
+      category: "AC Repair & Service",
+      skills: [
+        { name: "AC Repair & Service" },
+        { name: "Plumbing" },
+        { name: "Electrical" },
+        { name: "Painting" },
+        { name: "Cleaning" },
+        { name: "Carpentry" },
+      ],
+    },
   });
 }
 
