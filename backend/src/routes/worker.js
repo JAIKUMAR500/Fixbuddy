@@ -441,22 +441,37 @@ router.get(
       cluster.priorities[p] = (cluster.priorities[p] || 0) + 1;
     }
 
-    const clusters = Array.from(clusterMap.values()).map((c) => ({
-      lat: c.lat,
-      lng: c.lng,
-      area: c.area,
-      count: c.count,
-      topCategories: Object.entries(c.categories)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([name, count]) => ({ name, count })),
-      emergencyCount: c.priorities["emergency"] || 0,
-      urgentCount: c.priorities["urgent"] || 0,
-    }));
+    const clusters = Array.from(clusterMap.values()).map((c) => {
+      const topEntries = Object.entries(c.categories || {}).sort((a, b) => b[1] - a[1]);
+      const emergency = c.priorities["emergency"] || 0;
+      const urgent = c.priorities["urgent"] || 0;
+      const normal = c.priorities["normal"] || 0;
+      return {
+        clusterId: `${c.lat}_${c.lng}`,
+        center: { lat: c.lat, lng: c.lng },
+        lat: c.lat,
+        lng: c.lng,
+        area: c.area,
+        count: c.count,
+        activeDemandCount: c.count,
+        approxRadiusKm: 2,
+        categories: c.categories || {},
+        topCategories: topEntries.slice(0, 3).map(([name, count]) => ({ name, count })),
+        topCategory: topEntries[0] ? topEntries[0][0] : "General Services",
+        emergencyCount: emergency,
+        urgentCount: urgent,
+        priorityCounts: {
+          emergency,
+          urgent,
+          normal,
+        },
+      };
+    });
 
     res.json({
       workerLocation: { lat: wLat, lng: wLng },
       totalJobs: rows.length,
+      totalActiveDemands: rows.length,
       clusters,
     });
   })

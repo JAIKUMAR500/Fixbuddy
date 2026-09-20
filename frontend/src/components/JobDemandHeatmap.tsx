@@ -44,21 +44,49 @@ export default function JobDemandHeatmap({ workerLat, workerLng }: Props) {
     void fetchHeatmap();
   }, [workerLat, workerLng]);
 
+  // Safe helper to extract properties across backend payload variations
+  const getClusterInfo = (c: JobDemandCluster) => {
+    const raw = c as any;
+    const centerLat = Number(c.center?.lat ?? raw.lat ?? 0);
+    const centerLng = Number(c.center?.lng ?? raw.lng ?? 0);
+    const demandCount = Number(c.activeDemandCount ?? raw.count ?? 0);
+    const emCount = Number(c.priorityCounts?.emergency ?? raw.emergencyCount ?? 0);
+    const urgCount = Number(c.priorityCounts?.urgent ?? raw.urgentCount ?? 0);
+    const normCount = Number(c.priorityCounts?.normal ?? Math.max(0, demandCount - emCount - urgCount));
+    const cats: Record<string, number> = c.categories || {};
+    const topCat = c.topCategory || raw.topCategories?.[0]?.name || Object.keys(cats)[0] || "General Services";
+    const approxRadius = c.approxRadiusKm ?? 2;
+    const cid = c.clusterId || `${centerLat}_${centerLng}`;
+    return {
+      cid,
+      centerLat,
+      centerLng,
+      demandCount,
+      emCount,
+      urgCount,
+      normCount,
+      cats,
+      topCat,
+      approxRadius,
+    };
+  };
+
   // Filter clusters
   const filteredClusters = clusters.filter((c) => {
-    if (selectedCategory !== "all" && !c.categories[selectedCategory]) {
+    const info = getClusterInfo(c);
+    if (selectedCategory !== "all" && !info.cats[selectedCategory]) {
       return false;
     }
-    if (selectedPriority === "emergency" && c.priorityCounts.emergency === 0) {
+    if (selectedPriority === "emergency" && info.emCount === 0) {
       return false;
     }
-    if (selectedPriority === "urgent" && c.priorityCounts.urgent === 0 && c.priorityCounts.emergency === 0) {
+    if (selectedPriority === "urgent" && info.urgCount === 0 && info.emCount === 0) {
       return false;
     }
     return true;
   });
 
-  const emergencyCount = clusters.reduce((sum, c) => sum + (c.priorityCounts.emergency || 0), 0);
+  const emergencyCount = clusters.reduce((sum, c) => sum + getClusterInfo(c).emCount, 0);
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
@@ -193,13 +221,14 @@ export default function JobDemandHeatmap({ workerLat, workerLng }: Props) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {filteredClusters.map((cluster) => {
-              const isHot = cluster.activeDemandCount >= 4;
-              const hasEmergency = cluster.priorityCounts.emergency > 0;
-              const hasUrgent = cluster.priorityCounts.urgent > 0;
+              const info = getClusterInfo(cluster);
+              const isHot = info.demandCount >= 4;
+              const hasEmergency = info.emCount > 0;
+              const hasUrgent = info.urgCount > 0;
 
               return (
                 <div
-                  key={cluster.clusterId}
+                  key={info.cid}
                   className={`p-4 rounded-2xl border transition-all hover:shadow-md ${
                     hasEmergency
                       ? "border-rose-200 bg-rose-50/30"
@@ -216,7 +245,7 @@ export default function JobDemandHeatmap({ workerLat, workerLng }: Props) {
                       <div>
                         <div className="flex items-center gap-1.5">
                           <h4 className="font-bold text-slate-900 text-sm">
-                            {cluster.topCategory || "General Services"} Zone
+                            {info.topCat} Zone
                           </h4>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -225,18 +254,18 @@ export default function JobDemandHeatmap({ workerLat, workerLng }: Props) {
                                 : "bg-slate-100 text-slate-700"
                             }`}
                           >
-                            {cluster.activeDemandCount} jobs
+                            {info.demandCount} jobs
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                           <MapPin className="w-3 h-3" />
-                          Approx ~{cluster.center.lat.toFixed(2)}, {cluster.center.lng.toFixed(2)} (within ~{cluster.approxRadiusKm}km)
+                          Approx ~{info.centerLat.toFixed(2)}, {info.centerLng.toFixed(2)} (within ~{info.approxRadius}km)
                         </p>
                       </div>
                     </div>
 
                     <a
-                      href={`https://www.google.com/maps?q=${cluster.center.lat},${cluster.center.lng}`}
+                      href={`https://www.google.com/maps?q=${info.centerLat},${info.centerLng}`}
                       target="_blank"
                       rel="noreferrer"
                       className="p-1.5 rounded-lg text-slate-400 hover:text-brand hover:bg-slate-100 transition-colors"
@@ -252,23 +281,23 @@ export default function JobDemandHeatmap({ workerLat, workerLng }: Props) {
                       {hasEmergency && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 flex items-center gap-1">
                           <ShieldAlert className="w-3 h-3" />
-                          {cluster.priorityCounts.emergency} Emergency
+                          {info.emCount} Emergency
                         </span>
                       )}
                       {hasUrgent && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800">
-                          {cluster.priorityCounts.urgent} Urgent
+                          {info.urgCount} Urgent
                         </span>
                       )}
-                      {cluster.priorityCounts.normal > 0 && (
+                      {info.normCount > 0 && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600">
-                          {cluster.priorityCounts.normal} Normal
+                          {info.normCount} Normal
                         </span>
                       )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1">
-                      {Object.entries(cluster.categories || {}).map(([cat, count]) => (
+                      {Object.entries(info.cats).map(([cat, count]) => (
                         <span
                           key={cat}
                           className="px-2 py-0.5 rounded-md text-[11px] bg-white border border-slate-200 text-slate-700 font-medium"
