@@ -49,7 +49,27 @@ export default function WorkerReliabilityView({ workerId }: Props) {
     );
   }
 
-  const { factualMetrics, milestones } = data;
+  const raw = (data || {}) as any;
+  const metrics = (data?.factualMetrics || raw.reliability || {}) as any;
+  const completedJobs = Number(metrics.completedJobs ?? 0);
+  const cancelledJobs = Number(metrics.cancelledJobs ?? metrics.cancellationCount ?? 0);
+  const completionRate = Number(metrics.completionRate ?? (100 - (metrics.cancellationRate ?? 0)));
+  const onTimeArrivalRate = Number(metrics.onTimeArrivalRate ?? metrics.onTimePct ?? 100);
+  const repeatCustomerCount = Number(metrics.repeatCustomerCount ?? 0);
+  const verifiedSkillsCount = Number(metrics.verifiedSkillsCount ?? 0);
+  const totalRatedJobs = Number(metrics.totalRatedJobs ?? metrics.reviewCount ?? 0);
+  const averageRating = Number(metrics.averageRating ?? metrics.rating ?? 0);
+
+  const rawMilestones = Array.isArray(data?.milestones) ? data.milestones : [];
+  const milestones = rawMilestones.map((m: any) => ({
+    id: String(m.id || Math.random()),
+    title: String(m.title || "Milestone"),
+    description: String(m.description || ""),
+    icon: String(m.icon || "🏆"),
+    achieved: Boolean(m.achieved ?? m.earned ?? false),
+    progress: Number(m.progress ?? m.current ?? 0),
+    threshold: Math.max(1, Number(m.threshold ?? m.target ?? 1)),
+  }));
 
   return (
     <div className="space-y-4">
@@ -74,21 +94,21 @@ export default function WorkerReliabilityView({ workerId }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-center">
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Completed</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{factualMetrics.completedJobs}</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{completedJobs}</p>
             <p className="text-[10px] text-slate-500 mt-0.5">
-              {factualMetrics.completionRate}% completion rate
+              {completionRate}% completion rate
             </p>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-center">
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">On-Time Arrival</p>
-            <p className="text-2xl font-black text-brand mt-1">{factualMetrics.onTimeArrivalRate}%</p>
+            <p className="text-2xl font-black text-brand mt-1">{onTimeArrivalRate}%</p>
             <p className="text-[10px] text-slate-500 mt-0.5">Prompt job arrival</p>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-center">
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Repeat Clients</p>
-            <p className="text-2xl font-black text-amber-600 mt-1">{factualMetrics.repeatCustomerCount}</p>
+            <p className="text-2xl font-black text-amber-600 mt-1">{repeatCustomerCount}</p>
             <p className="text-[10px] text-slate-500 mt-0.5">Rebooked by customers</p>
           </div>
 
@@ -96,9 +116,9 @@ export default function WorkerReliabilityView({ workerId }: Props) {
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Rating</p>
             <p className="text-2xl font-black text-slate-900 mt-1 flex items-center justify-center gap-1">
               <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-              {factualMetrics.averageRating > 0 ? factualMetrics.averageRating.toFixed(1) : "—"}
+              {averageRating > 0 ? averageRating.toFixed(1) : "—"}
             </p>
-            <p className="text-[10px] text-slate-500 mt-0.5">{factualMetrics.totalRatedJobs} reviews</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">{totalRatedJobs} reviews</p>
           </div>
         </div>
 
@@ -106,10 +126,10 @@ export default function WorkerReliabilityView({ workerId }: Props) {
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs text-slate-600">
           <span className="flex items-center gap-1.5 font-medium">
             <Wrench className="w-4 h-4 text-brand" />
-            {factualMetrics.verifiedSkillsCount} verified trade skill(s) on passport
+            {verifiedSkillsCount} verified trade skill(s) on passport
           </span>
           <span className="font-semibold text-slate-700">
-            {factualMetrics.cancelledJobs} cancellation(s)
+            {cancelledJobs} cancellation(s)
           </span>
         </div>
       </div>
