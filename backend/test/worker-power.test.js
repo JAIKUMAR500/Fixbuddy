@@ -304,6 +304,11 @@ test("nearby jobs and request GET enforce skill matching", async (t) => {
 
   const { server, url } = await listen(appServer());
   try {
+    const passportRes = await json(url, "GET", "/api/worker/passport", null, plumber._id);
+    assert.equal(passportRes.status, 200);
+    assert.ok(passportRes.data.passport);
+    assert.equal(passportRes.data.passport.name, "Pipe Pros");
+
     const nearbyPlumber = await json(url, "GET", "/api/worker/nearby-jobs", null, plumber._id);
     assert.equal(nearbyPlumber.status, 200);
     assert.equal(nearbyPlumber.data.hasSkills, true);

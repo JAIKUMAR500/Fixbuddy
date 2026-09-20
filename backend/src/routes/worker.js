@@ -6,6 +6,7 @@ import { requireRole } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
 import { OPEN_JOB_STATUSES, km } from "../utils/geo.js";
 import { findWorkerLockedJob, LOCK_MESSAGE } from "../utils/jobLock.js";
+import { professionalPublic } from "../utils/serialize.js";
 import {
   todayEarned,
   earnedInRange,
