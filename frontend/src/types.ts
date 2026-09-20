@@ -114,6 +114,7 @@ export interface RequestData {
   estimatedAmount?: number;
   scheduledAt?: string;
   scheduledLabel?: string;
+  priority?: "normal" | "urgent" | "emergency";
 }
 
 export interface AppState {

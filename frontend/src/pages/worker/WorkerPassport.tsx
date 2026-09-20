@@ -4,6 +4,7 @@ import { View } from "../../types";
 import { Button, Card, Input, Textarea } from "../../components/ui";
 import { WorkerAPI, mediaUrl, type WorkerPassport } from "../../api/client";
 import { useApp } from "../../api/AppContext";
+import WorkerReliabilityView from "../../components/WorkerReliabilityView";
 
 export default function WorkerPassport({ navigate }: { navigate: (v: View) => void }) {
   const { user } = useApp();
@@ -96,6 +97,9 @@ export default function WorkerPassport({ navigate }: { navigate: (v: View) => vo
           <Stat label="Cancellation" value={`${p.cancelPct}%`} />
         </div>
       </Card>
+
+      {/* Factual Reliability Scorecard & Milestones */}
+      <WorkerReliabilityView />
 
       <Card padding="md">
         <p className="font-semibold mb-2">Badges</p>

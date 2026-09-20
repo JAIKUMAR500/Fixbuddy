@@ -4,8 +4,7 @@ import { Request } from "../models/Request.js";
 import { Crew } from "../models/Crew.js";
 import { requireRole } from "../middleware/auth.js";
 import { asyncHandler, httpError } from "../utils/asyncHandler.js";
-import { professionalPublic } from "../utils/serialize.js";
-import { OPEN_JOB_STATUSES } from "../utils/geo.js";
+import { OPEN_JOB_STATUSES, km } from "../utils/geo.js";
 import { findWorkerLockedJob, LOCK_MESSAGE } from "../utils/jobLock.js";
 import {
   todayEarned,
@@ -387,6 +386,246 @@ router.get(
           : "You're ready for the next job.",
       nextJob: next,
     });
+  })
+);
+
+router.get(
+  "/job-demand-heatmap",
+  asyncHandler(async (req, res) => {
+    const worker = req.user;
+    const category = req.query.category ? String(req.query.category).trim() : null;
+    const priority = req.query.priority ? String(req.query.priority).trim() : null;
+    const maxDistanceKm = Number(req.query.maxDistanceKm || 30);
+
+    const filter = {
+      status: { $in: OPEN_JOB_STATUSES },
+      declinedBy: { $ne: worker._id },
+      $or: [{ providerId: null }, { providerId: { $exists: false } }],
+    };
+    if (category) filter.category = new RegExp(`^${category}$`, "i");
+    if (priority) filter.priority = priority;
+
+    const rows = await Request.find(filter)
+      .select("category priority area city lat lng createdAt")
+      .limit(200)
+      .lean();
+
+    const clusterMap = new Map();
+    const wLat = worker.lat ?? worker.provider?.lat ?? 12.9716;
+    const wLng = worker.lng ?? worker.provider?.lng ?? 77.5946;
+
+    for (const r of rows) {
+      if (r.lat == null || r.lng == null) continue;
+      const dist = km(wLat, wLng, r.lat, r.lng);
+      if (dist != null && dist > maxDistanceKm) continue;
+
+      const gridLat = Math.round(r.lat * 50) / 50;
+      const gridLng = Math.round(r.lng * 50) / 50;
+      const key = `${gridLat}_${gridLng}`;
+
+      let cluster = clusterMap.get(key);
+      if (!cluster) {
+        cluster = {
+          lat: gridLat,
+          lng: gridLng,
+          area: r.area || r.city || "Bangalore",
+          count: 0,
+          categories: {},
+          priorities: {},
+        };
+        clusterMap.set(key, cluster);
+      }
+      cluster.count += 1;
+      cluster.categories[r.category] = (cluster.categories[r.category] || 0) + 1;
+      const p = r.priority || "normal";
+      cluster.priorities[p] = (cluster.priorities[p] || 0) + 1;
+    }
+
+    const clusters = Array.from(clusterMap.values()).map((c) => ({
+      lat: c.lat,
+      lng: c.lng,
+      area: c.area,
+      count: c.count,
+      topCategories: Object.entries(c.categories)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name, count]) => ({ name, count })),
+      emergencyCount: c.priorities["emergency"] || 0,
+      urgentCount: c.priorities["urgent"] || 0,
+    }));
+
+    res.json({
+      workerLocation: { lat: wLat, lng: wLng },
+      totalJobs: rows.length,
+      clusters,
+    });
+  })
+);
+
+router.get(
+  "/reliability-profile",
+  asyncHandler(async (req, res) => {
+    const workerId = req.userId;
+    const [completedJobs, cancelledWorkerJobs, allWorkerJobs, pack, reviews] = await Promise.all([
+      Request.countDocuments({
+        providerId: workerId,
+        status: { $in: ["completed", "payment_collected", "customer_completed", "reviewed"] },
+      }),
+      Request.countDocuments({
+        providerId: workerId,
+        status: "cancelled",
+        cancelledBy: "worker",
+      }),
+      Request.find({
+        providerId: workerId,
+        status: { $in: ["completed", "payment_collected", "customer_completed", "reviewed"] },
+      })
+        .select("customerId scheduledAt arrivedAt timeline acceptedAt")
+        .lean(),
+      passportBundle(req.user),
+      import("../models/Review.js").then((m) =>
+        m.Review.find({ providerId: workerId }).select("rating").lean()
+      ),
+    ]);
+
+    const customerCounts = {};
+    for (const j of allWorkerJobs) {
+      if (j.customerId) {
+        const cid = String(j.customerId);
+        customerCounts[cid] = (customerCounts[cid] || 0) + 1;
+      }
+    }
+    const repeatCustomerCount = Object.values(customerCounts).filter((c) => c > 1).length;
+    const totalAssigned = completedJobs + cancelledWorkerJobs;
+    const cancellationRate = totalAssigned > 0 ? Math.round((cancelledWorkerJobs / totalAssigned) * 100) : 0;
+
+    let onTimeCount = 0;
+    for (const j of allWorkerJobs) {
+      if (j.arrivedAt && j.scheduledAt) {
+        const diffMin = (new Date(j.arrivedAt).getTime() - new Date(j.scheduledAt).getTime()) / 60000;
+        if (diffMin <= 15) onTimeCount += 1;
+      } else {
+        onTimeCount += 1;
+      }
+    }
+    const onTimePct = completedJobs > 0 ? Math.min(100, Math.round((onTimeCount / completedJobs) * 100)) : 100;
+    const verifiedSkillsCount = (pack.passport?.skills || []).filter((s) => s.verified).length;
+
+    const avgRating = reviews.length
+      ? Math.round((reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length) * 10) / 10
+      : req.user.provider?.ratingAvg || 5.0;
+
+    const milestones = [
+      {
+        id: "first_job",
+        title: "First Job Completed",
+        description: "Successfully finished your first service job",
+        earned: completedJobs >= 1,
+        progress: Math.min(1, completedJobs / 1),
+        target: 1,
+        current: completedJobs,
+      },
+      {
+        id: "ten_jobs",
+        title: "10 Jobs Completed",
+        description: "Milestone for reliable active workers",
+        earned: completedJobs >= 10,
+        progress: Math.min(1, completedJobs / 10),
+        target: 10,
+        current: completedJobs,
+      },
+      {
+        id: "fifty_jobs",
+        title: "50 Jobs Completed",
+        description: "Experienced service professional",
+        earned: completedJobs >= 50,
+        progress: Math.min(1, completedJobs / 50),
+        target: 50,
+        current: completedJobs,
+      },
+      {
+        id: "repeat_customers",
+        title: "Repeat Customers",
+        description: "Served multiple repeat clients",
+        earned: repeatCustomerCount >= 2,
+        progress: Math.min(1, repeatCustomerCount / 2),
+        target: 2,
+        current: repeatCustomerCount,
+      },
+      {
+        id: "skill_verified",
+        title: "Verified Skills",
+        description: "Has one or more verified skills in Passport",
+        earned: verifiedSkillsCount >= 1,
+        progress: Math.min(1, verifiedSkillsCount / 1),
+        target: 1,
+        current: verifiedSkillsCount,
+      },
+      {
+        id: "high_punctuality",
+        title: "Punctuality Star",
+        description: "Maintained 90%+ on-time arrival across jobs",
+        earned: completedJobs >= 3 && onTimePct >= 90,
+        progress: completedJobs >= 3 ? onTimePct / 100 : completedJobs / 3,
+        target: 90,
+        current: onTimePct,
+      },
+    ];
+
+    res.json({
+      reliability: {
+        completedJobs,
+        onTimePct,
+        cancellationCount: cancelledWorkerJobs,
+        cancellationRate,
+        repeatCustomerCount,
+        verifiedSkillsCount,
+        rating: avgRating,
+        reviewCount: reviews.length,
+      },
+      milestones,
+    });
+  })
+);
+
+router.get(
+  "/notification-preferences",
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.userId).select("notificationPreferences").lean();
+    const defaults = {
+      nearbyJobs: true,
+      onlyMySkills: false,
+      emergencyJobs: true,
+      maxDistanceKm: 25,
+      minJobValue: 0,
+      scheduledJobs: true,
+    };
+    const prefs = {
+      ...defaults,
+      ...(user?.notificationPreferences?.workerJobAlerts || {}),
+    };
+    res.json({ preferences: prefs });
+  })
+);
+
+router.put(
+  "/notification-preferences",
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const update = {
+      nearbyJobs: body.nearbyJobs !== false,
+      onlyMySkills: !!body.onlyMySkills,
+      emergencyJobs: body.emergencyJobs !== false,
+      maxDistanceKm: Math.max(1, Math.min(100, Number(body.maxDistanceKm || 25))),
+      minJobValue: Math.max(0, Number(body.minJobValue || 0)),
+      scheduledJobs: body.scheduledJobs !== false,
+    };
+    const doc = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: { "notificationPreferences.workerJobAlerts": update } },
+      { new: true }
+    ).select("notificationPreferences");
+    res.json({ ok: true, preferences: doc.notificationPreferences?.workerJobAlerts || update });
   })
 );
 

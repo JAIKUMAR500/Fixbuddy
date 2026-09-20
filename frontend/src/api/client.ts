@@ -1,4 +1,4 @@
-﻿import { Capacitor } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 
 /** Live Express API. Used by the Android WebView when VITE_API_URL is empty. */
 const PRODUCTION_API = "https://fixbuddy-1-nh5a.onrender.com";
@@ -300,6 +300,73 @@ export const RequestAPI = {
     api<{ request: JobRequest }>(`/requests/${id}/delay`, { method: "POST", body: JSON.stringify({ reason, note }) }),
   priceBand: (q: string) =>
     api<{ min: number | null; max: number | null; typical?: number; text: string; sample: number }>(`/requests/price-band${q}`),
+  requestPriceChange: (id: string, body: { requestedAmount?: number; additionalAmount?: number; reason: string }) =>
+    api<{ request: JobRequest }>(`/requests/${id}/price-change`, { method: "POST", body: JSON.stringify(body) }),
+  respondPriceChange: (
+    id: string,
+    changeId: string,
+    payload: { action: "approve" | "reject"; customerNote?: string } | "approve" | "reject",
+    note?: string
+  ) => {
+    const body = typeof payload === "string" ? { action: payload, customerNote: note } : payload;
+    return api<{ request: JobRequest }>(`/requests/${id}/price-change/${changeId}/respond`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  requestMaterial: (
+    id: string,
+    body:
+      | { itemName: string; estimatedCost: number; receiptPhoto?: string }
+      | { item: string; quantity: number; estimatedPrice: number; reason: string }
+  ) => api<{ request: JobRequest }>(`/requests/${id}/material-request`, { method: "POST", body: JSON.stringify(body) }),
+  respondMaterial: (
+    id: string,
+    materialId: string,
+    payload: { action: "approve" | "reject"; customerNote?: string } | "approve" | "reject"
+  ) => {
+    const body = typeof payload === "string" ? { action: payload } : payload;
+    return api<{ request: JobRequest }>(`/requests/${id}/material-request/${materialId}/respond`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  handover: (id: string, payload: { reason: string; note?: string } | string) => {
+    const body = typeof payload === "string" ? { reason: payload } : payload;
+    return api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/handover`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  reportNoShow: (id: string, body: { reason?: string; action?: "rematch" | "cancel" }) =>
+    api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/report-no-show`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  customerUnavailable: (id: string, payload?: { note?: string } | string) => {
+    const body = typeof payload === "string" ? { reason: payload } : payload || {};
+    return api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/customer-unavailable`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  confirmBill: (id: string) =>
+    api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/confirm-bill`, { method: "POST" }),
+  requestReschedule: (
+    id: string,
+    body: { requestedDate?: string; proposedAt?: string; proposedLabel?: string; reason?: string }
+  ) =>
+    api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/reschedule-request`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  respondReschedule: (id: string, payload: { action: "accept" | "reject" } | "accept" | "reject") => {
+    const body = typeof payload === "string" ? { action: payload } : payload;
+    return api<{ ok: boolean; request: JobRequest }>(`/requests/${id}/reschedule-respond`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
 };
 
 export const ChatAPI = {
@@ -553,6 +620,27 @@ export const WorkerAPI = {
       message: string;
       nextJob: WorkerJobCard | null;
     }>("/worker/idle-status"),
+  demandHeatmap: (params?: { category?: string; priority?: string; maxDistanceKm?: number; lat?: number; lng?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.category) q.set("category", params.category);
+    if (params?.priority) q.set("priority", params.priority);
+    if (params?.maxDistanceKm) q.set("maxDistanceKm", String(params.maxDistanceKm));
+    if (params?.lat != null) q.set("lat", String(params.lat));
+    if (params?.lng != null) q.set("lng", String(params.lng));
+    const qs = q.toString();
+    return api<{ workerLocation?: { lat: number; lng: number }; totalJobs?: number; totalActiveDemands?: number; clusters: JobDemandCluster[] }>(
+      `/worker/job-demand-heatmap${qs ? `?${qs}` : ""}`
+    );
+  },
+  reliabilityProfile: (workerId?: string) =>
+    api<WorkerReliability>(`/worker/reliability-profile${workerId ? `?workerId=${workerId}` : ""}`),
+  getNotificationPreferences: () =>
+    api<{ preferences: WorkerJobAlertPreferences }>("/worker/notification-preferences"),
+  updateNotificationPreferences: (preferences: Partial<WorkerJobAlertPreferences>) =>
+    api<{ ok: boolean; preferences: WorkerJobAlertPreferences }>("/worker/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+    }),
 };
 
 export const CrewAPI = {
@@ -597,6 +685,17 @@ export const SafetyAPI = {
     }),
   list: () => api<{ incidents: { id: string; type: string; status: string; description?: string; createdAt: string }[] }>("/safety/incidents"),
   report: (body: object) => api<{ ok: boolean }>("/safety/report", { method: "POST", body: JSON.stringify(body) }),
+  reportDispute: (body: { requestId: string; reason: string; description?: string; body?: string; subject?: string; photos?: string[] }) =>
+    api<{ ok: boolean; id: string }>("/safety/complaints", {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: body.requestId,
+        reason: body.reason,
+        body: body.description || body.body || "",
+        subject: body.subject || `Dispute: ${body.reason}`,
+        photos: body.photos || [],
+      }),
+    }),
 };
 
 export const PublicAPI = {
@@ -778,9 +877,132 @@ export type WorkPhotoItem = {
   caption?: string;
 };
 
+export type PriceChangeRequest = {
+  id: string;
+  requestedAmount: number;
+  originalAmount: number;
+  difference: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedBy: string | null;
+  requestedAt: string | null;
+  respondedAt: string | null;
+  customerNote?: string;
+};
+
+export type MaterialRequest = {
+  id: string;
+  itemName: string;
+  estimatedCost: number;
+  receiptPhoto?: string;
+  status: "pending" | "approved" | "rejected";
+  requestedBy: string | null;
+  requestedAt: string | null;
+  respondedAt: string | null;
+  customerNote?: string;
+};
+
+export type AssignmentHistoryItem = {
+  workerId: string | null;
+  workerName: string;
+  assignedAt: string | null;
+  releasedAt: string | null;
+  reason: string;
+  note?: string;
+};
+
+export type FinalBill = {
+  baseAmount: number;
+  approvedPriceChange: number;
+  approvedMaterials: number;
+  totalAmount: number;
+  calculatedAt: string | null;
+  confirmedByCustomer: boolean;
+  confirmedAt: string | null;
+};
+
+export type RescheduleRequestItem = {
+  requestedDate: string | null;
+  reason: string;
+  status: "pending" | "accepted" | "rejected";
+  requestedBy: string | null;
+  requestedAt: string | null;
+  respondedAt: string | null;
+};
+
+export type RescheduleHistoryItem = {
+  fromDate: string | null;
+  toDate: string | null;
+  reason: string;
+  requestedBy: string | null;
+  respondedBy: string | null;
+  status: string;
+  at: string | null;
+};
+
+export type WorkerMilestone = {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  achieved: boolean;
+  progress: number;
+  threshold: number;
+};
+
+export type WorkerReliability = {
+  factualMetrics: {
+    completedJobs: number;
+    cancelledJobs: number;
+    completionRate: number;
+    onTimeArrivalRate: number;
+    repeatCustomerCount: number;
+    verifiedSkillsCount: number;
+    totalRatedJobs: number;
+    averageRating: number;
+  };
+  milestones: WorkerMilestone[];
+  worker: {
+    id: string;
+    name: string;
+    verified: boolean;
+    category: string;
+    experience: string;
+    skills: { id: string; name: string; verified: boolean; pending: boolean }[];
+  };
+};
+
+export type JobDemandCluster = {
+  clusterId: string;
+  center: {
+    lat: number;
+    lng: number;
+  };
+  approxRadiusKm: number;
+  activeDemandCount: number;
+  priorityCounts: {
+    normal: number;
+    urgent: number;
+    emergency: number;
+  };
+  categories: {
+    [category: string]: number;
+  };
+  topCategory: string;
+};
+
+export type WorkerJobAlertPreferences = {
+  nearbyRadiusKm: number;
+  skillsOnly: boolean;
+  emergencyAlerts: boolean;
+  minJobAmount: number;
+  soundEnabled: boolean;
+};
+
 export type JobRequest = {
   id: string;
   code: string;
+  priority?: "normal" | "urgent" | "emergency";
   customerId: string | null;
   providerId: string | null;
   invitedProviderIds?: string[];
@@ -893,6 +1115,12 @@ export type JobRequest = {
     scenario: string;
     label: string;
   } | null;
+  priceChangeRequests?: PriceChangeRequest[];
+  materialRequests?: MaterialRequest[];
+  assignmentHistory?: AssignmentHistoryItem[];
+  finalBill?: FinalBill | null;
+  rescheduleRequest?: RescheduleRequestItem | null;
+  rescheduleHistory?: RescheduleHistoryItem[];
 };
 
 export type Provider = {

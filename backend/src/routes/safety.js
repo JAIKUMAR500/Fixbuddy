@@ -126,6 +126,9 @@ router.post(
         againstId = String(job.customerId) === req.userId ? job.providerId : job.customerId;
       }
     }
+    const VALID_REASONS = ["work_not_completed", "damage", "wrong_amount", "worker_issue", "customer_issue", "other"];
+    const reason = VALID_REASONS.includes(req.body.reason) ? req.body.reason : "other";
+    const photos = Array.isArray(req.body.photos) ? req.body.photos.slice(0, 5) : [];
     const n = await Complaint.countDocuments();
     const doc = await Complaint.create({
       code: `CMP-${String(n + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex")}`,
@@ -134,11 +137,13 @@ router.post(
       requestId: requestId || null,
       party: isSeeker(req.user.role) ? "worker" : req.user.role === "business" ? "business" : "customer",
       subject,
+      reason,
       body,
+      photos,
     });
     const admins = await User.find({ role: "admin", status: "active" }).select("_id").lean();
     for (const a of admins) {
-      await notify(a._id, { type: "alert", text: `New report: ${subject}` });
+      await notify(a._id, { type: "alert", text: `New report [${reason}]: ${subject}` });
     }
     res.status(201).json({ ok: true, id: String(doc._id) });
   })

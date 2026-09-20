@@ -272,6 +272,38 @@ export default function MessagesInbox({
               </div>
             ))}
           </div>
+          {/* Structured Job Chat Quick Actions */}
+          <div className="bg-slate-50 border-t border-sky-100 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1">
+              Quick replies:
+            </span>
+            {(mine === "customer"
+              ? [
+                  "What is your ETA?",
+                  "Please call when outside",
+                  "Gate code / Flat details",
+                  "Need price confirmation",
+                  "Share location pin",
+                ]
+              : [
+                  "I'm on the way",
+                  "I've arrived at your door",
+                  "Please share gate / entry details",
+                  "Inspecting the issue now",
+                  "Need extra material for this repair",
+                ]
+            ).map((phrase) => (
+              <button
+                key={phrase}
+                type="button"
+                onClick={() => void send({ text: phrase })}
+                disabled={sending}
+                className="shrink-0 px-2.5 py-1 bg-white border border-sky-200 hover:border-sky-400 hover:bg-sky-50 text-sky-800 rounded-full text-xs font-medium transition-colors"
+              >
+                {phrase}
+              </button>
+            ))}
+          </div>
           <div className="bg-white border-t border-sky-100 px-3 py-3 flex items-center gap-2">
             <input
               ref={photoRef}

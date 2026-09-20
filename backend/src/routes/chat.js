@@ -24,23 +24,30 @@ router.post(
     if (!isValidObjectId(requestId)) throw httpError(400, "Invalid ID");
     const doc = await Request.findById(requestId);
     if (!doc) throw httpError(404, "Request not found");
+    const ACCEPTED_CHAT_STATUSES = [
+      "accepted",
+      "scheduled",
+      "on_the_way",
+      "arrived",
+      "otp_verified",
+      "in_progress",
+      "completed",
+      "payment_collected",
+      "customer_completed",
+      "reviewed",
+    ];
+    if (!doc.providerId || !ACCEPTED_CHAT_STATUSES.includes(doc.status)) {
+      throw httpError(403, "Chat is only available after a worker accepts the job.");
+    }
     const isCustomer = String(doc.customerId) === req.userId;
-    const isAssignedWorker = Boolean(doc.providerId) && String(doc.providerId) === req.userId;
-    const mine = isCustomer || isAssignedWorker || req.user.role === "admin";
+    const isAssignedWorker = String(doc.providerId) === req.userId;
+    const isCrewHelper = (doc.crewMemberIds || []).some((id) => String(id) === req.userId);
+    const mine = isCustomer || isAssignedWorker || isCrewHelper || req.user.role === "admin";
     if (!mine) {
       if (isFulfiller(req.user.role)) throw httpError(403, "Accept the job first to message the customer.");
       throw httpError(403, "Not your job");
     }
-    let conversationRequest = doc;
-    if (!doc.providerId) {
-      const selectedProviderId = String(req.body.providerId || "");
-      if (!selectedProviderId) throw httpError(400, "Chat opens after a worker accepts this job");
-      if (!isCustomer && req.user.role !== "admin") throw httpError(403, "Not your job");
-      const selectedProvider = await User.findOne({ _id: selectedProviderId, role: "worker", status: "active" }).select("_id").lean();
-      if (!selectedProvider) throw httpError(400, "This worker is not available for messaging");
-      conversationRequest = { ...doc.toObject(), providerId: selectedProvider._id };
-    }
-    const conv = await ensureConversation(conversationRequest);
+    const conv = await ensureConversation(doc);
     if (!conv) throw httpError(400, "Could not start chat");
     res.json({ conversationId: String(conv._id), requestId: String(doc._id) });
   })

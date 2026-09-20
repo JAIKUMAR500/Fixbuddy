@@ -67,6 +67,26 @@ function pushTimeline(doc, status, note, { force = false } = {}) {
   emitJobStatusChange(doc);
 }
 
+export function calculateJobBill(doc) {
+  const baseAmount =
+    doc.workerQuote != null && doc.workerQuote > 0
+      ? doc.workerQuote
+      : doc.estimatedAmount || doc.budgetMin || 0;
+  const extraWorkAmount = (doc.priceChangeRequests || [])
+    .filter((p) => p.status === "approved")
+    .reduce((sum, p) => sum + (Number(p.additionalAmount) || 0), 0);
+  const materialsAmount = (doc.materialRequests || [])
+    .filter((m) => m.status === "approved")
+    .reduce((sum, m) => sum + (Number(m.estimatedPrice) || 0) * (Number(m.quantity) || 1), 0);
+  const totalAmount = baseAmount + extraWorkAmount + materialsAmount;
+  return {
+    baseAmount,
+    extraWorkAmount,
+    materialsAmount,
+    totalAmount,
+  };
+}
+
 const LOCATION_PERSIST_MS = 20_000;
 const LOCATION_PERSIST_METERS = 25;
 
@@ -179,6 +199,7 @@ router.post(
     if (!description || !category) throw httpError(400, "Description and category are required");
     const desc = String(description).trim().slice(0, 4000);
     if (!desc) throw httpError(400, "Description and category are required");
+    const priority = ["normal", "urgent", "emergency"].includes(req.body.priority) ? req.body.priority : "normal";
     const amountRaw = estimatedAmount ?? budgetMax ?? budgetMin ?? 0;
     let amount = Number(amountRaw);
     if (!Number.isFinite(amount) || amount < 0) throw httpError(400, "Amount must be a valid non-negative number");
@@ -202,7 +223,8 @@ router.post(
       lng: lng != null ? Number(lng) : req.user.lng,
       photos: Array.isArray(photos) ? photos.slice(0, 12) : [],
       voiceNote: voiceNote || "",
-      timing: timing || "asap",
+      timing: priority === "emergency" ? "asap" : timing || "asap",
+      priority,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       scheduledLabel: scheduledLabel || "",
       estimatedAmount: amount,
@@ -220,7 +242,7 @@ router.post(
       preferredProviderId: preferredProviderId || null,
       customerLanguage,
       status: "matching",
-      timeline: [{ status: "matching", note: "Job posted", at: new Date() }],
+      timeline: [{ status: "matching", note: priority === "emergency" ? "Emergency job posted" : "Job posted", at: new Date() }],
       finance: {
         mode: "development",
         status: "not_applicable",
@@ -241,11 +263,12 @@ router.post(
     pushTimeline(doc, "open", `${scored.length} workers matched`);
     await doc.save();
 
+    const alertPrefix = priority === "emergency" ? "🚨 Emergency Job: " : priority === "urgent" ? "⚡ Urgent Job: " : "New job: ";
     await notifyMany(
       scored.map((s) => s.provider._id),
       {
-        type: "request",
-        text: `New job: ${category} in ${doc.area || doc.city}`,
+        type: priority === "emergency" ? "alert" : "request",
+        text: `${alertPrefix}${doc.category} in ${doc.area || doc.city}`,
         requestId: doc._id,
       }
     );
@@ -880,7 +903,17 @@ router.post(
     }
     if (doc.status !== "in_progress") throw httpError(409, "Start work before marking it complete.");
     doc.completedAt = new Date();
-    if (doc.finance) doc.finance.status = "pending_simulation";
+    const bill = calculateJobBill(doc);
+    const hasExtras = bill.extraWorkAmount > 0 || bill.materialsAmount > 0;
+    doc.finalBill = {
+      ...bill,
+      confirmedByCustomer: (doc.finalBill && doc.finalBill.confirmedByCustomer) || !hasExtras,
+      confirmedAt: (doc.finalBill && doc.finalBill.confirmedAt) || (!hasExtras ? new Date() : null),
+    };
+    if (doc.finance) {
+      doc.finance.jobPricePaise = rupeesToPaise(bill.totalAmount);
+      doc.finance.status = "pending_simulation";
+    }
     pushTimeline(doc, "completed", "Work completed. Confirm simulated collection — no real money moves.");
     await doc.save();
     await User.updateOne({ _id: req.userId }, { $inc: { "provider.completedJobs": 1 } });
@@ -904,6 +937,14 @@ router.post(
     const alreadyPaid = doc.paymentStatus === "collected" || doc.finance?.settled;
     if (!alreadyPaid && doc.status !== "completed") {
       throw httpError(400, "Complete the work before confirming payment.");
+    }
+    const bill = calculateJobBill(doc);
+    const hasExtras = bill.extraWorkAmount > 0 || bill.materialsAmount > 0;
+    if (hasExtras && !doc.finalBill?.confirmedByCustomer) {
+      throw httpError(400, "Customer must confirm the final bill before payment collection.");
+    }
+    if (doc.finance) {
+      doc.finance.jobPricePaise = rupeesToPaise(bill.totalAmount);
     }
     const payments = getPaymentService();
     const finance = await payments.settleJob(doc);
@@ -1255,6 +1296,502 @@ router.post(
       requestId: doc._id,
     });
     res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/price-change",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (doc.status !== "in_progress") throw httpError(400, "Price change requests can only be made while work is in progress.");
+    const additionalAmount = Number(req.body.additionalAmount);
+    if (!Number.isFinite(additionalAmount) || additionalAmount <= 0) throw httpError(400, "Enter a valid positive additional amount.");
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) throw httpError(400, "Reason is required.");
+    if ((doc.priceChangeRequests || []).some((p) => p.status === "pending")) {
+      throw httpError(409, "A price change request is already pending approval.");
+    }
+    doc.priceChangeRequests.push({
+      requestedBy: req.userId,
+      additionalAmount,
+      reason,
+      status: "pending",
+      createdAt: new Date(),
+    });
+    doc.timeline.push({
+      status: doc.status,
+      note: `Worker requested additional ₹${additionalAmount}: ${reason}`,
+      at: new Date(),
+    });
+    await doc.save();
+    await notify(doc.customerId, {
+      type: "request",
+      text: `Worker requested additional ₹${additionalAmount} for "${reason}". Approval required.`,
+      requestId: doc._id,
+    });
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/price-change/:changeId/respond",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    const action = String(req.body.action || "").toLowerCase();
+    if (!["approve", "reject"].includes(action)) throw httpError(400, "Action must be 'approve' or 'reject'");
+    const pcr = (doc.priceChangeRequests || []).find((p) => String(p._id) === req.params.changeId);
+    if (!pcr) throw httpError(404, "Price change request not found");
+    if (pcr.status !== "pending") throw httpError(400, `Request is already ${pcr.status}`);
+
+    if (action === "approve") {
+      pcr.status = "approved";
+      pcr.respondedAt = new Date();
+      const bill = calculateJobBill(doc);
+      doc.finalBill = {
+        ...bill,
+        confirmedByCustomer: false,
+      };
+      if (doc.finance) doc.finance.jobPricePaise = rupeesToPaise(bill.totalAmount);
+      doc.timeline.push({
+        status: doc.status,
+        note: `Customer approved price change of ₹${pcr.additionalAmount}`,
+        at: new Date(),
+      });
+      await doc.save();
+      if (doc.providerId) {
+        await notify(doc.providerId, {
+          type: "info",
+          text: `Customer approved additional ₹${pcr.additionalAmount}.`,
+          requestId: doc._id,
+        });
+      }
+    } else {
+      pcr.status = "rejected";
+      pcr.respondedAt = new Date();
+      pcr.responseNote = String(req.body.note || "").slice(0, 200);
+      doc.timeline.push({
+        status: doc.status,
+        note: `Customer rejected price change request`,
+        at: new Date(),
+      });
+      await doc.save();
+      if (doc.providerId) {
+        await notify(doc.providerId, {
+          type: "info",
+          text: `Customer declined the price change request.`,
+          requestId: doc._id,
+        });
+      }
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/material-request",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (doc.status !== "in_progress") throw httpError(400, "Material requests can only be made while work is in progress.");
+    const item = String(req.body.item || "").trim();
+    if (!item) throw httpError(400, "Item description is required.");
+    const quantity = Math.max(1, Number(req.body.quantity || 1));
+    const estimatedPrice = Number(req.body.estimatedPrice);
+    if (!Number.isFinite(estimatedPrice) || estimatedPrice <= 0) throw httpError(400, "Enter a valid positive estimated price.");
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) throw httpError(400, "Reason is required.");
+
+    if ((doc.materialRequests || []).some((m) => m.status === "pending" && m.item.toLowerCase() === item.toLowerCase())) {
+      throw httpError(409, "A pending request for this material already exists.");
+    }
+    doc.materialRequests.push({
+      requestedBy: req.userId,
+      item,
+      quantity,
+      estimatedPrice,
+      reason,
+      status: "pending",
+      createdAt: new Date(),
+    });
+    doc.timeline.push({
+      status: doc.status,
+      note: `Worker requested materials: ${item} (qty ${quantity}) ~₹${estimatedPrice * quantity}`,
+      at: new Date(),
+    });
+    await doc.save();
+    await notify(doc.customerId, {
+      type: "request",
+      text: `Worker requested materials: ${item} (₹${estimatedPrice * quantity}). Approval required.`,
+      requestId: doc._id,
+    });
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/material-request/:materialId/respond",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    const action = String(req.body.action || "").toLowerCase();
+    if (!["approve", "reject"].includes(action)) throw httpError(400, "Action must be 'approve' or 'reject'");
+    const mr = (doc.materialRequests || []).find((m) => String(m._id) === req.params.materialId);
+    if (!mr) throw httpError(404, "Material request not found");
+    if (mr.status !== "pending") throw httpError(400, `Material request is already ${mr.status}`);
+
+    if (action === "approve") {
+      mr.status = "approved";
+      mr.respondedAt = new Date();
+      const bill = calculateJobBill(doc);
+      doc.finalBill = {
+        ...bill,
+        confirmedByCustomer: false,
+      };
+      if (doc.finance) doc.finance.jobPricePaise = rupeesToPaise(bill.totalAmount);
+      doc.timeline.push({
+        status: doc.status,
+        note: `Customer approved materials: ${mr.item} (₹${mr.estimatedPrice * mr.quantity})`,
+        at: new Date(),
+      });
+      await doc.save();
+      if (doc.providerId) {
+        await notify(doc.providerId, {
+          type: "info",
+          text: `Customer approved materials: ${mr.item}.`,
+          requestId: doc._id,
+        });
+      }
+    } else {
+      mr.status = "rejected";
+      mr.respondedAt = new Date();
+      doc.timeline.push({
+        status: doc.status,
+        note: `Customer rejected materials request: ${mr.item}`,
+        at: new Date(),
+      });
+      await doc.save();
+      if (doc.providerId) {
+        await notify(doc.providerId, {
+          type: "info",
+          text: `Customer declined materials request for ${mr.item}.`,
+          requestId: doc._id,
+        });
+      }
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/handover",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (["completed", "payment_collected", "customer_completed", "reviewed", "cancelled", "declined"].includes(doc.status)) {
+      throw httpError(400, "Cannot handover this job in its current state.");
+    }
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) throw httpError(400, "Handover reason is required.");
+
+    await releaseWorkerLock(req.userId);
+
+    doc.assignmentHistory = doc.assignmentHistory || [];
+    doc.assignmentHistory.push({
+      workerId: req.userId,
+      workerName: req.user.provider?.businessName || req.user.name,
+      assignedAt: doc.acceptedAt || doc.createdAt,
+      unassignedAt: new Date(),
+      reason,
+      mode: "handover",
+    });
+
+    doc.declinedBy = doc.declinedBy || [];
+    if (!doc.declinedBy.some((id) => String(id) === req.userId)) {
+      doc.declinedBy.push(req.userId);
+    }
+
+    doc.providerId = null;
+    doc.acceptedAt = null;
+    doc.arrivedAt = null;
+    doc.startedAt = null;
+    doc.otpVerified = false;
+    doc.jobOtp = "";
+    doc.workerLat = null;
+    doc.workerLng = null;
+    doc.workerLocationAt = null;
+
+    const nextStatus = doc.scheduledAt && new Date(doc.scheduledAt).getTime() > Date.now() ? "open" : "matching";
+    pushTimeline(doc, nextStatus, `Worker requested handover: ${reason}. Re-matching nearby workers.`, { force: true });
+    await doc.save();
+
+    await notify(doc.customerId, {
+      type: "info",
+      text: `Worker requested handover: ${reason}. Finding an available replacement worker for you.`,
+      requestId: doc._id,
+    });
+
+    const scored = await matchProviders(doc);
+    if (scored.length) {
+      await notifyMany(
+        scored.map((s) => s.provider._id),
+        {
+          type: "request",
+          text: `Job available for pickup: ${doc.category} in ${doc.area || doc.city}`,
+          requestId: doc._id,
+        }
+      );
+    }
+
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/report-no-show",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!["accepted", "scheduled", "on_the_way"].includes(doc.status)) {
+      throw httpError(400, "No-show can only be reported while awaiting worker arrival.");
+    }
+    const reason = String(req.body.reason || "Worker did not arrive").trim();
+    const action = String(req.body.action || "rematch").toLowerCase();
+
+    const oldWorkerId = doc.providerId ? String(doc.providerId) : null;
+    if (oldWorkerId) {
+      await releaseWorkerLock(oldWorkerId);
+      doc.declinedBy = doc.declinedBy || [];
+      if (!doc.declinedBy.some((id) => String(id) === oldWorkerId)) {
+        doc.declinedBy.push(oldWorkerId);
+      }
+      doc.assignmentHistory = doc.assignmentHistory || [];
+      doc.assignmentHistory.push({
+        workerId: oldWorkerId,
+        workerName: "Worker",
+        assignedAt: doc.acceptedAt || doc.createdAt,
+        unassignedAt: new Date(),
+        reason,
+        mode: "no_show",
+      });
+    }
+
+    if (action === "cancel") {
+      doc.status = "cancelled";
+      doc.cancelReason = `Worker no-show: ${reason}`;
+      doc.cancelledAt = new Date();
+      doc.cancelledBy = "customer";
+      await releaseLocksForJob(doc._id);
+      doc.timeline.push({ status: "cancelled", note: `Cancelled: Worker no-show (${reason})`, at: new Date() });
+      await doc.save();
+      emitJobStatusChange(doc);
+      if (oldWorkerId) {
+        await notify(oldWorkerId, {
+          type: "alert",
+          text: `Job cancelled due to reported no-show: ${reason}`,
+          requestId: doc._id,
+        });
+      }
+    } else {
+      doc.providerId = null;
+      doc.acceptedAt = null;
+      doc.workerLat = null;
+      doc.workerLng = null;
+      pushTimeline(doc, "matching", `Worker no-show reported: ${reason}. Finding replacement worker.`, { force: true });
+      await doc.save();
+      if (oldWorkerId) {
+        await notify(oldWorkerId, {
+          type: "alert",
+          text: `Customer reported no-show: ${reason}. Job reassigned.`,
+          requestId: doc._id,
+        });
+      }
+      const scored = await matchProviders(doc);
+      if (scored.length) {
+        await notifyMany(
+          scored.map((s) => s.provider._id),
+          {
+            type: "request",
+            text: `Urgent pickup: ${doc.category} in ${doc.area || doc.city}`,
+            requestId: doc._id,
+          }
+        );
+      }
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/customer-unavailable",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (doc.status !== "arrived") throw httpError(400, "Customer unavailable can only be reported after arriving at the location.");
+    const reason = String(req.body.reason || "Customer not responding at doorstep").trim();
+    doc.timeline.push({
+      status: doc.status,
+      note: `Worker reported customer unavailable: ${reason}`,
+      at: new Date(),
+    });
+    await doc.save();
+    await notify(doc.customerId, {
+      type: "alert",
+      text: `Your worker has arrived and is waiting: ${reason}. Please share OTP or contact worker.`,
+      requestId: doc._id,
+    });
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/confirm-bill",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    const bill = calculateJobBill(doc);
+    doc.finalBill = {
+      ...bill,
+      confirmedByCustomer: true,
+      confirmedAt: new Date(),
+    };
+    if (doc.finance) doc.finance.jobPricePaise = rupeesToPaise(bill.totalAmount);
+    doc.timeline.push({
+      status: doc.status,
+      note: `Customer confirmed final bill of ₹${bill.totalAmount}`,
+      at: new Date(),
+    });
+    await doc.save();
+    if (doc.providerId) {
+      await notify(doc.providerId, {
+        type: "success",
+        text: `Customer confirmed final bill of ₹${bill.totalAmount}. Ready for payment collection.`,
+        requestId: doc._id,
+      });
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/reschedule-request",
+  asyncHandler(async (req, res) => {
+    const doc = await Request.findById(req.params.id);
+    if (!doc) throw httpError(404, "Request not found");
+    if (String(doc.customerId) !== req.userId && !isAdmin(req.user.role)) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!["accepted", "scheduled"].includes(doc.status)) {
+      throw httpError(400, "Reschedule is only available for accepted or scheduled jobs before work starts.");
+    }
+    const proposedAt = req.body.proposedAt ? new Date(req.body.proposedAt) : null;
+    if (!proposedAt || isNaN(proposedAt.getTime()) || proposedAt.getTime() <= Date.now()) {
+      throw httpError(400, "Select a valid future date and time.");
+    }
+    const reason = String(req.body.reason || "").trim();
+    const proposedLabel = req.body.proposedLabel || formatWhen(proposedAt);
+    doc.rescheduleRequest = {
+      requestedBy: req.userId,
+      proposedAt,
+      proposedLabel,
+      reason,
+      status: "pending",
+      createdAt: new Date(),
+    };
+    doc.timeline.push({
+      status: doc.status,
+      note: `Customer requested reschedule to ${proposedLabel}: ${reason || "No reason given"}`,
+      at: new Date(),
+    });
+    await doc.save();
+    if (doc.providerId) {
+      await notify(doc.providerId, {
+        type: "request",
+        text: `Customer requested to reschedule to ${proposedLabel}. Response required.`,
+        requestId: doc._id,
+      });
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
+  })
+);
+
+router.post(
+  "/:id/reschedule-respond",
+  asyncHandler(async (req, res) => {
+    if (!isSeeker(req.user.role) && !isAdmin(req.user.role)) throw httpError(403, "Workers only");
+    const doc = await Request.findById(req.params.id);
+    if (!doc || String(doc.providerId) !== req.userId) throw httpError(403, NO_ACCESS_MESSAGE);
+    if (!doc.rescheduleRequest || doc.rescheduleRequest.status !== "pending") {
+      throw httpError(400, "No pending reschedule request.");
+    }
+    const action = String(req.body.action || "").toLowerCase();
+    if (!["accept", "reject"].includes(action)) throw httpError(400, "Action must be 'accept' or 'reject'");
+
+    doc.rescheduleHistory = doc.rescheduleHistory || [];
+    if (action === "accept") {
+      const newTime = doc.rescheduleRequest.proposedAt;
+      const newLabel = doc.rescheduleRequest.proposedLabel;
+      doc.scheduledAt = newTime;
+      doc.scheduledLabel = newLabel;
+      doc.status = "scheduled";
+      doc.rescheduleHistory.push({
+        requestedBy: doc.rescheduleRequest.requestedBy,
+        proposedAt: newTime,
+        reason: doc.rescheduleRequest.reason,
+        status: "accepted",
+        respondedAt: new Date(),
+      });
+      doc.rescheduleRequest = null;
+      doc.timeline.push({
+        status: "scheduled",
+        note: `Worker accepted new schedule: ${newLabel}`,
+        at: new Date(),
+      });
+      await doc.save();
+      await notify(doc.customerId, {
+        type: "success",
+        text: `Worker accepted new schedule for ${newLabel}.`,
+        requestId: doc._id,
+      });
+    } else {
+      doc.rescheduleHistory.push({
+        requestedBy: doc.rescheduleRequest.requestedBy,
+        proposedAt: doc.rescheduleRequest.proposedAt,
+        reason: doc.rescheduleRequest.reason,
+        status: "rejected",
+        respondedAt: new Date(),
+      });
+      doc.rescheduleRequest = null;
+      doc.timeline.push({
+        status: doc.status,
+        note: `Worker declined the reschedule request`,
+        at: new Date(),
+      });
+      await doc.save();
+      await notify(doc.customerId, {
+        type: "info",
+        text: `Worker was unable to reschedule to the requested time. Existing schedule remains active.`,
+        requestId: doc._id,
+      });
+    }
+    const extras = await loadPeople(doc.toObject(), req);
+    res.json({ ok: true, request: presentRequest(doc, extras) });
   })
 );
 

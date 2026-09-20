@@ -58,6 +58,18 @@ const providerSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const workerJobAlertsSchema = new mongoose.Schema(
+  {
+    nearbyJobs: { type: Boolean, default: true },
+    onlyMySkills: { type: Boolean, default: false },
+    emergencyJobs: { type: Boolean, default: true },
+    maxDistanceKm: { type: Number, default: 25 },
+    minJobValue: { type: Number, default: 0 },
+    scheduledJobs: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const notificationPreferencesSchema = new mongoose.Schema(
   {
     inApp: { type: Boolean, default: true },
@@ -66,6 +78,7 @@ const notificationPreferencesSchema = new mongoose.Schema(
     jobUpdates: { type: Boolean, default: true },
     paymentUpdates: { type: Boolean, default: true },
     marketing: { type: Boolean, default: false },
+    workerJobAlerts: { type: workerJobAlertsSchema, default: () => ({}) },
   },
   { _id: false }
 );

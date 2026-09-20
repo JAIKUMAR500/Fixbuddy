@@ -8,12 +8,29 @@ import {
   Share2,
   Shield,
   Wallet,
+  IndianRupee,
+  Package,
+  RefreshCw,
+  AlertTriangle,
+  Calendar,
 } from "lucide-react";
 import { View } from "../../types";
 import { Button, Card } from "../../components/ui";
 import { JobProgress, jobPrimaryAction } from "../../components/JobProgress";
 import JobTrackingPanel, { isTrackingStatus } from "../../components/JobTrackingPanel";
 import CancelJobPanel from "../../components/CancelJobPanel";
+import JobDisputeModal from "../../components/JobDisputeModal";
+import {
+  PriceChangeModal,
+  PriceChangeCard,
+  MaterialRequestModal,
+  MaterialRequestCard,
+  FinalBillCard,
+  HandoverModal,
+  NoShowModal,
+  RescheduleModal,
+  RescheduleWorkerCard,
+} from "./ActiveJobPanels";
 import { ChatAPI, RequestAPI, mediaUrl, uploadImage, type JobRequest } from "../../api/client";
 import { useApp } from "../../api/AppContext";
 import { isSeeker } from "../../api/roles";
@@ -84,6 +101,13 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
   const [liveWorker, setLiveWorker] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [socketState, setSocketState] = useState<RealtimeConnectionState>(getRealtimeConnectionState());
   const gpsState = useWorkerGps(job?.id, job?.status, worker);
+
+  const [showPriceChangeModal, setShowPriceChangeModal] = useState(false);
+  const [showMaterialModal, setShowMaterialModal] = useState(false);
+  const [showHandoverModal, setShowHandoverModal] = useState(false);
+  const [showNoShowModal, setShowNoShowModal] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -342,6 +366,63 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
 
       <JobProgress status={job.status} />
 
+      {/* Production Flow Cards (Reschedule, Price Changes, Materials, Final Bill) */}
+      <RescheduleWorkerCard job={job} onRefresh={() => void load()} />
+      {job.priceChangeRequests?.map((p) => (
+        <PriceChangeCard key={p.id} job={job} request={p} onRefresh={() => void load()} />
+      ))}
+      {job.materialRequests?.map((m) => (
+        <MaterialRequestCard key={m.id} job={job} material={m} onRefresh={() => void load()} />
+      ))}
+      <FinalBillCard job={job} isWorker={Boolean(worker)} onRefresh={() => void load()} />
+
+      {/* Handover & No-Show Quick Actions */}
+      {worker && canLeadActions && ["accepted", "scheduled", "on_the_way", "arrived", "in_progress"].includes(job.status) && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 flex-1 min-h-10"
+            onClick={() => setShowHandoverModal(true)}
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Handover Job
+          </Button>
+          {job.status === "arrived" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 flex-1 min-h-10"
+              onClick={() => setShowNoShowModal(true)}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" /> Customer Unavailable
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!worker && ["accepted", "scheduled", "on_the_way"].includes(job.status) && (
+        <div className="flex items-center gap-2">
+          {["accepted", "scheduled"].includes(job.status) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs flex-1 min-h-10"
+              onClick={() => setShowRescheduleModal(true)}
+            >
+              <Calendar className="w-3.5 h-3.5 text-brand" /> Reschedule
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 flex-1 min-h-10"
+            onClick={() => setShowNoShowModal(true)}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" /> Report No-Show
+          </Button>
+        </div>
+      )}
+
       {(job.crewMembers?.length || job.crew) && (
         <Card padding="md" className="space-y-3 border-sky-100 bg-sky-50/40">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">Crew assigned</p>
@@ -494,6 +575,26 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           <p className="text-sm">Customer: {job.customer?.name || "Customer"}</p>
           <p className="text-sm">Service: {job.category}</p>
           <p className="text-sm font-semibold text-emerald-700">● Work Started</p>
+          {job.status === "in_progress" && (
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs min-h-10"
+                onClick={() => setShowPriceChangeModal(true)}
+              >
+                <IndianRupee className="w-3.5 h-3.5 text-amber-600" /> Price Change
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs min-h-10"
+                onClick={() => setShowMaterialModal(true)}
+              >
+                <Package className="w-3.5 h-3.5 text-brand" /> Add Materials
+              </Button>
+            </div>
+          )}
           {action === "complete" || job.status === "in_progress" ? (
             <Button className="w-full min-h-14 text-lg" disabled={!!busy} onClick={() => void run("complete", () => RequestAPI.complete(job.id))}>
               <Flag className="w-5 h-5" /> Complete Work
@@ -734,17 +835,38 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           >
             <Share2 className="w-4 h-4" /> Share with family
           </Button>
-          {watchUrl && <p className="text-xs text-slate-500 break-all">{watchUrl}</p>}
+          {watchUrl && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <p className="text-xs text-slate-600 break-all font-mono">{watchUrl}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() =>
+                  void run("revokeWatch", async () => {
+                    await RequestAPI.revokeWatch(job.id);
+                    setWatchUrl("");
+                  })
+                }
+              >
+                Stop Sharing / Revoke Link
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
-        <button type="button" onClick={() => startCall(worker ? job.customer?.phone : job.provider?.phone)} className="min-h-12 rounded-xl border font-semibold text-sm flex items-center justify-center gap-1">
+      <div className="grid grid-cols-4 gap-2">
+        <button
+          type="button"
+          onClick={() => startCall(worker ? job.customer?.phone : job.provider?.phone)}
+          className="min-h-12 rounded-xl border font-semibold text-xs flex flex-col items-center justify-center gap-1"
+        >
           <Phone className="w-4 h-4" /> Call
         </button>
         <button
           type="button"
-          className="min-h-12 rounded-xl border font-semibold text-sm flex items-center justify-center gap-1"
+          className="min-h-12 rounded-xl border font-semibold text-xs flex flex-col items-center justify-center gap-1"
           onClick={() =>
             void ChatAPI.open(job.id, user?.id).then(() => {
               setActiveRequestId(job.id);
@@ -756,7 +878,14 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
         </button>
         <button
           type="button"
-          className="min-h-12 rounded-xl border border-red-200 text-red-600 font-semibold text-sm flex items-center justify-center gap-1"
+          className="min-h-12 rounded-xl border font-semibold text-xs flex flex-col items-center justify-center gap-1"
+          onClick={() => setShowDisputeModal(true)}
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-600" /> Report
+        </button>
+        <button
+          type="button"
+          className="min-h-12 rounded-xl border border-red-200 text-red-600 font-semibold text-xs flex flex-col items-center justify-center gap-1"
           onClick={() => {
             setActiveRequestId(job.id);
             navigate(worker ? "worker-safety" : "customer-support");
@@ -765,6 +894,58 @@ export default function ActiveJob({ navigate }: { navigate: (v: View) => void })
           <Shield className="w-4 h-4" /> Safety
         </button>
       </div>
+
+      {/* Production Flow Modals */}
+      {showPriceChangeModal && (
+        <PriceChangeModal
+          job={job}
+          onClose={() => setShowPriceChangeModal(false)}
+          onSuccess={() => void load()}
+        />
+      )}
+      {showMaterialModal && (
+        <MaterialRequestModal
+          job={job}
+          onClose={() => setShowMaterialModal(false)}
+          onSuccess={() => void load()}
+        />
+      )}
+      {showHandoverModal && (
+        <HandoverModal
+          job={job}
+          onClose={() => setShowHandoverModal(false)}
+          onSuccess={() => {
+            void load();
+            navigate(worker ? "worker-next-jobs" : "customer-home");
+          }}
+        />
+      )}
+      {showNoShowModal && (
+        <NoShowModal
+          job={job}
+          isWorker={Boolean(worker)}
+          onClose={() => setShowNoShowModal(false)}
+          onSuccess={() => {
+            void load();
+            if (!worker) navigate("customer-home");
+          }}
+        />
+      )}
+      {showRescheduleModal && (
+        <RescheduleModal
+          job={job}
+          onClose={() => setShowRescheduleModal(false)}
+          onSuccess={() => void load()}
+        />
+      )}
+      {showDisputeModal && (
+        <JobDisputeModal
+          requestId={job.id}
+          jobCode={job.code}
+          onClose={() => setShowDisputeModal(false)}
+          onSuccess={() => void load()}
+        />
+      )}
     </div>
   );
 }

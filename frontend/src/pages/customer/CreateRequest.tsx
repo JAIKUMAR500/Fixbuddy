@@ -54,6 +54,9 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
   const [gateNote, setGateNote] = useState("");
   const [pinCode, setPinCode] = useState("");
   const [priceBand, setPriceBand] = useState("");
+  const [priority, setPriority] = useState<"normal" | "urgent" | "emergency">(
+    ((requestData as any)?.priority as "normal" | "urgent" | "emergency") || "normal"
+  );
 
   React.useEffect(() => {
     void CategoryAPI.list()
@@ -121,6 +124,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
       workersRequired: needTeam ? Math.max(2, workersRequired) : 1,
       scheduledAt,
       scheduledLabel,
+      priority,
       publicPost: true,
       tower,
       flat,
@@ -411,6 +415,38 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                 <Input label="Time" type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)} />
               </div>
             )}
+
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Job Urgency & Priority</h3>
+                <p className="text-xs text-slate-500">Flag critical repairs for immediate response</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "normal", label: "Normal", desc: "Standard dispatch", border: "border-slate-200" },
+                  { id: "urgent", label: "⚡ Urgent", desc: "Within 1-2 hours", border: "border-amber-300 bg-amber-50/50" },
+                  { id: "emergency", label: "🚨 Emergency", desc: "Immediate response", border: "border-rose-400 bg-rose-50" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPriority(p.id as any)}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      priority === p.id ? "ring-2 ring-brand ring-offset-1 font-bold " + p.border : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-slate-900">{p.label}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">{p.desc}</div>
+                  </button>
+                ))}
+              </div>
+              {priority === "emergency" && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+                  <span className="text-base">🚨</span>
+                  <span>Emergency jobs are highlighted in workers' radar and notified immediately.</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -449,6 +485,7 @@ export default function CreateRequest({ navigate, onRequestData, requestData }: 
                 { label: "Description", value: desc || "—", editStep: 2 },
                 { label: "Location", value: [address, area, city].filter(Boolean).join(", ") || "—", editStep: 3 },
                 { label: "When", value: scheduledLabel || "—", editStep: 4 },
+                { label: "Priority", value: priority === "emergency" ? "🚨 Emergency" : priority === "urgent" ? "⚡ Urgent" : "Normal", editStep: 4 },
                 { label: "Budget", value: amount ? `₹${amount}` : "Not set", editStep: 5 },
                 { label: "Photos", value: photos.length ? `${photos.length} photo(s)` : "None", editStep: 2 },
               ].map((row) => (

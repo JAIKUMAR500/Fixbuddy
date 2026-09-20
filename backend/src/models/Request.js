@@ -19,6 +19,70 @@ const matchSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const priceChangeSchema = new mongoose.Schema(
+  {
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    additionalAmount: { type: Number, required: true, min: 1 },
+    reason: { type: String, required: true, trim: true },
+    status: { type: String, enum: ["pending", "approved", "rejected", "cancelled"], default: "pending" },
+    createdAt: { type: Date, default: Date.now },
+    respondedAt: { type: Date, default: null },
+    responseNote: { type: String, default: "" },
+  },
+  { _id: true }
+);
+
+const materialRequestSchema = new mongoose.Schema(
+  {
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    item: { type: String, required: true, trim: true },
+    quantity: { type: Number, required: true, min: 1, default: 1 },
+    estimatedPrice: { type: Number, required: true, min: 1 },
+    reason: { type: String, required: true, trim: true },
+    status: { type: String, enum: ["pending", "approved", "rejected", "cancelled"], default: "pending" },
+    createdAt: { type: Date, default: Date.now },
+    respondedAt: { type: Date, default: null },
+  },
+  { _id: true }
+);
+
+const assignmentHistorySchema = new mongoose.Schema(
+  {
+    workerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    workerName: { type: String, default: "" },
+    assignedAt: { type: Date, default: Date.now },
+    unassignedAt: { type: Date, default: null },
+    reason: { type: String, default: "" },
+    mode: { type: String, enum: ["accepted", "handover", "rematch", "no_show", "cancelled", "reassigned"], default: "handover" },
+  },
+  { _id: true }
+);
+
+const rescheduleSchema = new mongoose.Schema(
+  {
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    proposedAt: { type: Date, required: true },
+    proposedLabel: { type: String, default: "" },
+    reason: { type: String, default: "" },
+    status: { type: String, enum: ["pending", "accepted", "rejected", "cancelled"], default: "pending" },
+    createdAt: { type: Date, default: Date.now },
+    respondedAt: { type: Date, default: null },
+  },
+  { _id: true }
+);
+
+const finalBillSchema = new mongoose.Schema(
+  {
+    baseAmount: { type: Number, default: 0 },
+    extraWorkAmount: { type: Number, default: 0 },
+    materialsAmount: { type: Number, default: 0 },
+    totalAmount: { type: Number, default: 0 },
+    confirmedByCustomer: { type: Boolean, default: false },
+    confirmedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const requestSchema = new mongoose.Schema(
   {
     code: { type: String, required: true, unique: true, index: true },
@@ -52,6 +116,7 @@ const requestSchema = new mongoose.Schema(
     photos: { type: [String], default: [] },
     voiceNote: { type: String, default: "" },
     timing: { type: String, default: "asap" },
+    priority: { type: String, enum: ["normal", "urgent", "emergency"], default: "normal", index: true },
     scheduledAt: { type: Date, default: null },
     scheduledLabel: { type: String, default: "" },
     budgetMin: { type: Number, default: 300 },
@@ -150,6 +215,12 @@ const requestSchema = new mongoose.Schema(
       financialMode: { type: String, default: "development" },
       label: { type: String, default: "" },
     },
+    priceChangeRequests: { type: [priceChangeSchema], default: [] },
+    materialRequests: { type: [materialRequestSchema], default: [] },
+    assignmentHistory: { type: [assignmentHistorySchema], default: [] },
+    finalBill: { type: finalBillSchema, default: () => ({}) },
+    rescheduleRequest: { type: rescheduleSchema, default: null },
+    rescheduleHistory: { type: [rescheduleSchema], default: [] },
   },
   { timestamps: true }
 );
