@@ -399,20 +399,21 @@ test("authorization, ObjectId, amount, and ready checks against MongoDB", async 
     }
   });
 
-  await t.test("login HTTP rate limit returns 429", async () => {
+  await t.test("repeated login attempts do not get blocked by rate limiting", async () => {
     resetRateLimitStore();
     const app = createApp();
     const { server: authServer, url: authUrl } = await listen(app);
     try {
       let last = { status: 0, data: {} };
-      for (let i = 0; i < AUTH_LIMITS.login.max + 1; i += 1) {
+      for (let i = 0; i < 12; i += 1) {
         last = await json(authUrl, "POST", "/api/auth/login", {
           email: "nobody@hard.test",
           password: "wrong-password",
           role: "customer",
         });
+        assert.notEqual(last.status, 429);
       }
-      assert.equal(last.status, 429);
+      assert.equal(last.status, 401);
     } finally {
       await new Promise((resolve) => authServer.close(resolve));
       resetRateLimitStore();

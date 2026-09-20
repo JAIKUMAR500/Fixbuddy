@@ -21,12 +21,6 @@ const AUTH_FAIL = "Email or password is incorrect. Check the Customer, Worker, o
 
 router.post(
   "/signup",
-  rateLimit({
-    windowMs: AUTH_LIMITS.signup.windowMs,
-    max: AUTH_LIMITS.signup.max,
-    key: (req) => `signup:${clientKey(req)}`,
-    message: "Too many signup attempts. Try again later.",
-  }),
   asyncHandler(async (req, res) => {
     const { name, email, phone, password, role, city, area, address, lat, lng } = req.body || {};
     if (!name || !email || !password) throw httpError(400, "Name, email and password are required");
@@ -129,12 +123,6 @@ async function pickUserWithPassword(ident, password, role) {
 
 router.post(
   "/login",
-  rateLimit({
-    windowMs: AUTH_LIMITS.login.windowMs,
-    max: AUTH_LIMITS.login.max,
-    key: (req) => `login:${clientKey(req)}:${identKey(req.body?.email || req.body?.phone || req.body?.username)}`,
-    message: "Too many login attempts. Try again later.",
-  }),
   asyncHandler(async (req, res) => {
     const ident = cleanIdent(req.body.email || req.body.phone || req.body.username || "");
     const password = String(req.body.password || "");
@@ -230,12 +218,6 @@ async function issueAuth(user, res, status = 200) {
 
 router.post(
   "/refresh",
-  rateLimit({
-    windowMs: AUTH_LIMITS.login.windowMs,
-    max: AUTH_LIMITS.login.max,
-    key: (req) => `refresh:${clientKey(req)}`,
-    message: "Too many session refresh attempts. Try again later.",
-  }),
   asyncHandler(async (req, res) => {
     const raw = readRefreshToken(req);
     if (!raw) throw httpError(401, "Session expired. Please sign in again.");
@@ -360,12 +342,6 @@ router.post(
 
 router.post(
   "/google",
-  rateLimit({
-    windowMs: AUTH_LIMITS.google.windowMs,
-    max: AUTH_LIMITS.google.max,
-    key: (req) => `google:${clientKey(req)}`,
-    message: "Too many Google sign-in attempts. Try again later.",
-  }),
   asyncHandler(async (req, res) => {
     const { getSettings } = await import("../models/PlatformSettings.js");
     const settings = await getSettings();
