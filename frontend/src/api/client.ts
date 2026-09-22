@@ -1,12 +1,14 @@
 import { Capacitor } from "@capacitor/core";
 
-/** Live Express API. Used by the Android WebView when VITE_API_URL is empty. */
+/** Live Express API on Render. Used when VITE_API_URL is empty outside local Vite. */
 const PRODUCTION_API = "https://fixbuddy-1-nh5a.onrender.com";
 
 function apiBase() {
   const raw = String(import.meta.env.VITE_API_URL || "").trim();
   if (!raw) {
     if (Capacitor.isNativePlatform()) return `${PRODUCTION_API.replace(/\/$/, "")}/api`;
+    // Production Vercel builds have no Vite proxy — /api would return index.html.
+    if (import.meta.env.PROD) return `${PRODUCTION_API.replace(/\/$/, "")}/api`;
     return "/api";
   }
   const noSlash = raw.replace(/\/$/, "");
@@ -26,7 +28,12 @@ export class ApiError extends Error {
 type ApiOpts = RequestInit & { skipAuthRefresh?: boolean };
 
 function keepBearerToken() {
-  return Capacitor.isNativePlatform() || Boolean(String(import.meta.env.VITE_API_URL || "").trim());
+  // Cross-origin API (native, VITE_API_URL, or production CDN → Render) needs Bearer tokens.
+  return (
+    Capacitor.isNativePlatform() ||
+    Boolean(String(import.meta.env.VITE_API_URL || "").trim()) ||
+    Boolean(import.meta.env.PROD)
+  );
 }
 
 export function persistSession(token?: string, refreshToken?: string) {

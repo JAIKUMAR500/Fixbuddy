@@ -3,5 +3,15 @@
   "installCommand": "npm --prefix frontend install",
   "buildCommand": "npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://fixbuddy-1-nh5a.onrender.com/api/:path*"
+    },
+    {
+      "source": "/socket.io/:path*",
+      "destination": "https://fixbuddy-1-nh5a.onrender.com/socket.io/:path*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
