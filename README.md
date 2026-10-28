@@ -27,8 +27,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173  
-API: http://localhost:4000
+Open https://fixbuddy-ivory.vercel.app/
 
 Configure the initial Super Admin only with the server-side `ADMIN_EMAIL` and `ADMIN_PASSWORD` environment variables. Never place admin credentials in frontend code or public documentation.
 
